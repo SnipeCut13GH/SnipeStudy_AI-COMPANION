@@ -1,0 +1,8 @@
+{
+  "name": "Snipestudy",
+  "description": "An AI-powered chatbot designed to be a personal study assistant. Ask questions, get explanations, and prepare for exams with your friendly AI tutor, right on your phone.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
