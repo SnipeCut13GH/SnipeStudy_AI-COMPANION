@@ -1,6 +1,6 @@
 {
-  "name": "Snipestudy",
-  "description": "An AI-powered chatbot designed to be a personal study assistant. Ask questions, get explanations, and prepare for exams with your friendly AI tutor, right on your phone.",
+  "name": "SnipeStudy",
+  "description": "An AI-powered chatbot using a free-tier API, designed to be your personal study assistant. Ask questions, get explanations, generate images, and prepare for exams with your friendly AI tutor.",
   "requestFramePermissions": [
     "camera",
     "microphone"

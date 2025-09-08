@@ -1,41 +1,174 @@
-
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <title>Snipestudy</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            colors: {
-              'brand-primary': '#1e3a8a', // Dark Blue
-              'brand-secondary': '#3b82f6', // Bright Blue
-              'brand-light': '#eff6ff', // Very Light Blue
-              'chat-user': '#3b82f6',
-              'chat-model': '#374151',
-              'background-dark': '#111827', // Dark Gray
-              'background-light': '#1f2937', // Lighter Gray
-            }
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SnipeStudy</title>
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#181818" />
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <script type="importmap">
+  {
+    "imports": {
+      "react": "https://aistudiocdn.com/react@^19.1.1",
+      "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
+      "react/": "https://aistudiocdn.com/react@^19.1.1/",
+      "@google/genai": "https://aistudiocdn.com/@google/genai@^1.17.0",
+      "uuid": "https://aistudiocdn.com/uuid@^11.1.0",
+      "react-dom": "https://aistudiocdn.com/react-dom@^19.1.1"
+    }
+  }
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+    :root {
+      --background: #111111;
+      --surface: #181818;
+      --overlay: #222222;
+      --text-primary: #FFFFFF;
+      --text-secondary: #A0A0A0;
+      --border-color: #2D2D2D;
+      --brand-primary: #4A90E2;
+      --brand-secondary: #50E3C2;
+      --danger: #E5484D;
+      --chat-user: #4A90E2;
+      --chat-model: #2D2D2D;
+      --background-dark: #1F1F1F;
+      --background-darkest: #121212;
+      --background-light: #2A2A2A;
+    }
+
+    :root.light {
+      --background: #F4F4F5;
+      --surface: #FFFFFF;
+      --overlay: #F9FAFB;
+      --text-primary: #111827;
+      --text-secondary: #6B7280;
+      --border-color: #E5E7EB;
+      --chat-user: #4A90E2;
+      --chat-model: #F3F4F6;
+      --background-dark: #FFFFFF;
+      --background-darkest: #F9FAFB;
+      --background-light: #FFFFFF;
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: var(--background);
+      color: var(--text-primary);
+    }
+    
+    .sidebar-mobile-overlay {
+        position: fixed;
+        inset: 0;
+        background-color: rgba(0,0,0,0.5);
+        z-index: 40;
+    }
+
+    .sidebar-mobile {
+        position: fixed;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease-in-out;
+        z-index: 50;
+    }
+    .sidebar-mobile.is-open {
+        transform: translateX(0);
+    }
+
+    /* Styles for flippable card in FlashcardView */
+    .perspective-1000 { perspective: 1000px; }
+    .transform-style-3d { transform-style: preserve-3d; }
+    .rotate-y-180 { transform: rotateY(180deg); }
+    .backface-hidden { backface-visibility: hidden; }
+    
+    .orb-listening {
+        animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+        0% { box-shadow: 0 0 0 0 rgba(74, 144, 226, 0.7); }
+        70% { box-shadow: 0 0 0 20px rgba(74, 144, 226, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(74, 144, 226, 0); }
+    }
+    .highlighted-word {
+      background-color: rgba(74, 144, 226, 0.3);
+      padding: 0 2px;
+      border-radius: 3px;
+    }
+    
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: var(--surface);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #333;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #444;
+    }
+    
+    @keyframes bounce {
+        0%, 100% {
+            transform: translateY(0);
+        }
+        50% {
+            transform: translateY(-10px);
+        }
+    }
+    .animate-bounce {
+        animation: bounce 1.5s ease-in-out infinite;
+    }
+
+    @media (max-width: 768px) {
+        .kanban-container {
+            flex-direction: column;
+            align-items: stretch;
+        }
+        .kanban-column {
+            width: 100% !important;
+            min-width: unset !important;
+        }
+    }
+
+  </style>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            background: 'var(--background)',
+            surface: 'var(--surface)',
+            overlay: 'var(--overlay)',
+            'text-primary': 'var(--text-primary)',
+            'text-secondary': 'var(--text-secondary)',
+            'border-color': 'var(--border-color)',
+            'brand-primary': 'var(--brand-primary)',
+            'brand-secondary': 'var(--brand-secondary)',
+            danger: 'var(--danger)',
+            'chat-user': 'var(--chat-user)',
+            'chat-model': 'var(--chat-model)',
+            'background-dark': 'var(--background-dark)',
+            'background-darkest': 'var(--background-darkest)',
+            'background-light': 'var(--background-light)',
           }
         }
       }
-    </script>
-  <script type="importmap">
-{
-  "imports": {
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.1.1/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.16.0",
-    "react/": "https://aistudiocdn.com/react@^19.1.1/",
-    "react": "https://aistudiocdn.com/react@^19.1.1"
-  }
-}
-</script>
+    }
+  </script>
 </head>
-  <body class="bg-background-dark">
-    <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
-  </body>
+<body class="bg-background">
+  <div id="root"></div>
+  <div id="modal-root"></div>
+  <div id="tooltip-root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
 </html>
