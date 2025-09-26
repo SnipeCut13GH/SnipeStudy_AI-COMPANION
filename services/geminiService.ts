@@ -9,7 +9,9 @@ import { Message, Question, MindMapNode, KanbanTask, PresentationSlide, MessageR
 import { languages } from './translations.ts';
 
 // Initialize the AI service directly, assuming API_key is in the environment.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+// New (Correct for browser with Vite):
+const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_API_KEY! });
+
 
 
 const textModel = 'gemini-2.5-flash';
