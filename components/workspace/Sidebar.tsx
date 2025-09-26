@@ -1,8 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { Project, ChatSession, ToolType } from '../../types.ts';
+import { Project, ChatSession } from '../../types.ts';
 import { Button } from '../common/Button.tsx';
 import { Tooltip } from '../common/Tooltip.tsx';
-import { Modal } from '../common/Modal.tsx';
 import { AppSettings } from '../../App.tsx';
 import { getTranslator } from '../../services/translator.ts';
 import { v4 as uuidv4 } from 'uuid';
@@ -16,10 +15,6 @@ const ChatIcon = (p:any) => <svg {...p} xmlns="http://www.w3.org/2000/svg" fill=
 const DeleteIcon = (p:any) => <svg {...p} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4"><path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>;
 
 interface SidebarProps {
-    projects: Project[];
-    activeProjectId: string;
-    onSetActiveProject: (id: string) => void;
-    onCreateProject: (name: string) => void;
     onOpenSettings: () => void;
     isMobile: boolean;
     isOpen: boolean;
@@ -27,34 +22,11 @@ interface SidebarProps {
     isCollapsed: boolean;
     onToggleCollapse: () => void;
     settings: AppSettings;
-    activeProject: Project;
+    project: Project;
     onUpdateProject: (updater: (project: Project) => Project) => void;
 }
 
-const NewProjectModal: React.FC<{ isOpen: boolean; onClose: () => void; onCreate: (name: string) => void; t: (key: string) => string; }> = ({ isOpen, onClose, onCreate, t }) => {
-    const [name, setName] = useState('');
-    const handleCreate = () => {
-        if (name.trim()) {
-            onCreate(name.trim());
-            onClose();
-        }
-    };
-    return (
-        <Modal isOpen={isOpen} onClose={onClose} title={t('sidebar.modal.title')}>
-            <div className="space-y-4">
-                <label htmlFor="projectName" className="block text-sm font-medium text-text-secondary">{t('sidebar.modal.label')}</label>
-                <input id="projectName" type="text" value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleCreate()} placeholder={t('sidebar.modal.placeholder')} className="w-full bg-background-dark border border-border-color p-2 rounded-md text-text-primary" />
-                <div className="flex justify-end gap-2">
-                    <Button onClick={onClose} variant="secondary">{t('sidebar.modal.cancel')}</Button>
-                    <Button onClick={handleCreate}>{t('sidebar.modal.create')}</Button>
-                </div>
-            </div>
-        </Modal>
-    );
-};
-
-export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onSetActiveProject, onCreateProject, onOpenSettings, isMobile, isOpen, onClose, isCollapsed, onToggleCollapse, settings, activeProject, onUpdateProject }) => {
-    const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
+export const Sidebar: React.FC<SidebarProps> = ({ onOpenSettings, isMobile, isOpen, onClose, isCollapsed, onToggleCollapse, settings, project, onUpdateProject }) => {
     const { t } = getTranslator(settings.language);
 
     const handleNewChat = () => {
@@ -126,8 +98,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onS
         if (isMobile) onClose();
     };
 
-    const sortedProjects = useMemo(() => [...projects].sort((a, b) => new Date(b.lastAccessed).getTime() - new Date(a.lastAccessed).getTime()), [projects]);
-    const chatSessions = activeProject.tools.chat?.sessions || {};
+    const chatSessions = project.tools.chat?.sessions || {};
     // FIX: Cast Object.values to the correct type, as TypeScript infers unknown[].
     const sortedSessions: ChatSession[] = (Object.values(chatSessions) as ChatSession[]).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
@@ -142,21 +113,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onS
                 )}
             </div>
             
-            <div className="px-2 flex-shrink-0">
-                <select value={activeProjectId} onChange={e => { onSetActiveProject(e.target.value); if (isMobile) onClose(); }} className={`w-full bg-overlay p-2 rounded-md border border-border-color text-sm truncate ${isCollapsed ? 'hidden' : ''}`}>
-                    {sortedProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
-            </div>
-            
-            <div className="p-2 flex-shrink-0">
-                <Tooltip content={t('sidebar.newProject')} position="right" disabled={!isCollapsed}>
-                    <Button onClick={() => { setIsProjectModalOpen(true); if (isMobile) onClose(); }} variant="secondary" className="w-full">
-                        <PlusIcon /> {!isCollapsed && <span className="ml-2">{t('sidebar.newProject')}</span>}
-                    </Button>
-                </Tooltip>
-            </div>
-
-            <div className="flex-grow overflow-y-auto px-2 mt-2 border-t border-border-color pt-2">
+            <div className="flex-grow overflow-y-auto px-2 mt-2">
                 <div className={`flex items-center justify-between mb-2 ${isCollapsed ? 'hidden' : ''}`}>
                     <h3 className="text-xs font-semibold uppercase text-text-secondary px-2">Chats</h3>
                     <Tooltip content="New Chat" position="top">
@@ -167,7 +124,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onS
                     <Tooltip key={session.id} content={session.title} position="right" disabled={!isCollapsed}>
                         <div
                             onClick={() => handleSwitchChat(session.id)}
-                            className={`group flex items-center p-2 rounded-md cursor-pointer text-sm mb-1 truncate ${activeProject.tools.chat?.activeSessionId === session.id ? 'active-sidebar-link' : 'hover:bg-overlay'}`}
+                            className={`group flex items-center p-2 rounded-md cursor-pointer text-sm mb-1 truncate ${project.tools.chat?.activeSessionId === session.id ? 'active-sidebar-link' : 'hover:bg-overlay'}`}
                         >
                             <ChatIcon className="h-4 w-4 flex-shrink-0" />
                             {!isCollapsed && <span className="ml-3 flex-1 truncate">{session.title}</span>}
@@ -195,7 +152,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ projects, activeProjectId, onS
                     </Button>
                 </Tooltip>
             </div>
-             <NewProjectModal isOpen={isProjectModalOpen} onClose={() => setIsProjectModalOpen(false)} onCreate={onCreateProject} t={t} />
         </div>
     );
     

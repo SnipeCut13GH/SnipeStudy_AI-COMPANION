@@ -1,19 +1,13 @@
 import React from 'react';
 import { Project, ToolType, ChatSession } from '../../types.ts';
 import { QuizView } from '../QuizView.tsx';
-import { StoryViewer } from '../StoryViewer.tsx';
 import { MindMapView } from '../MindMapView.tsx';
 import { CodeModeView } from '../tools/CodeRunnerView.tsx';
-import { FlashcardView } from '../tools/FlashcardView.tsx';
-import { AudioTranscriberView } from '../tools/AudioTranscriberView.tsx';
 import { PresentationView } from '../tools/PresentationView.tsx';
 import { KanbanView } from '../tools/KanbanView.tsx';
 import { CalendarView } from '../tools/CalendarView.tsx';
 import { ImageEditorView } from '../ImageEditorView.tsx';
-import { SmartboardView } from '../tools/SmartboardView.tsx';
-import { DocsView } from '../tools/DocsView.tsx';
 import { GamesView } from '../tools/GamesView.tsx';
-// Fix: Import VideoGeneratorView to be able to use it in the dashboard.
 import { VideoGeneratorView } from '../tools/VideoGeneratorView.tsx';
 import { MessageList } from '../ChatMessage.tsx';
 import { ChatInput } from '../ChatInput.tsx';
@@ -23,8 +17,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { AppSettings } from '../../App.tsx';
 import { languages } from '../../services/translations.ts';
 import { getTranslator } from '../../services/translator.ts';
-import { Tooltip } from '../common/Tooltip.tsx';
-
 
 // --- Main Project Dashboard Component ---
 interface ProjectDashboardProps {
@@ -174,7 +166,7 @@ export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
         }
     };
   
-    const toolComponentMap: Record<ToolType, React.ReactNode> = {
+    const toolComponentMap: Partial<Record<ToolType, React.ReactNode>> = {
         'chat': (() => {
             const chatData = project.tools.chat;
             const activeSession = chatData && chatData.activeSessionId ? chatData.sessions[chatData.activeSessionId] : null;
@@ -196,16 +188,11 @@ export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
         'quiz': <QuizView project={project} onUpdateProject={onUpdateProject} settings={settings} />,
         'mind_map': <MindMapView project={project} onUpdateProject={onUpdateProject} settings={settings} />,
         'code_mode': <CodeModeView project={project} onUpdateProject={onUpdateProject} />,
-        'flashcards': <FlashcardView project={project} onUpdateProject={onUpdateProject} settings={settings} />,
-        'audio_transcription': <AudioTranscriberView project={project} onUpdateProject={onUpdateProject} />,
         'presentation': <PresentationView project={project} onUpdateProject={onUpdateProject} settings={settings} />,
         'kanban': <KanbanView project={project} onUpdateProject={onUpdateProject} settings={settings} />,
         'calendar': <CalendarView project={project} onUpdateProject={onUpdateProject} />,
         'image_editor': <ImageEditorView project={project} onUpdateProject={onUpdateProject} />,
-        'smartboard': <SmartboardView project={project} onUpdateProject={onUpdateProject} settings={settings} />,
-        'docs': <DocsView project={project} onUpdateProject={onUpdateProject} settings={settings} />,
         'games': <GamesView settings={settings} />,
-        // Fix: Add video generator to the tool map.
         'video_generator': <VideoGeneratorView project={project} onUpdateProject={onUpdateProject} />,
     };
 

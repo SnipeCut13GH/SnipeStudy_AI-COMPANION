@@ -1,14 +1,14 @@
-import React, { useState, useEffect, useCallback, useReducer, useMemo, createContext, useContext } from 'react';
+import React, { useState, useEffect, useReducer, useMemo, createContext, useContext } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useLocalStorage } from './hooks/useLocalStorage.ts';
 import { Project } from './types.ts';
-import { Welcome } from './components/Welcome.tsx';
 import { WorkspaceView } from './views/WorkspaceView.tsx';
 import { Settings } from './components/Settings.tsx';
 import { PomodoroTimer } from './components/PomodoroTimer.tsx';
 import { Calculator } from './components/Calculator.tsx';
 import { LiveModeOverlay } from './components/LiveModeOverlay.tsx';
 import { Toast } from './components/Toast.tsx';
+import { Spinner } from './components/common/Spinner.tsx';
 
 // TYPE DEFINITIONS
 export interface AppSettings {
@@ -101,7 +101,7 @@ const pomodoroReducer = (state: PomodoroState, action: PomodoroAction): Pomodoro
 const DEFAULT_SETTINGS: AppSettings = {
     theme: 'dark',
     username: 'Studious Snipe',
-    systemInstruction: 'You are StudyBot, a helpful AI assistant focused on learning and productivity. Be concise and clear. When providing links, prefer direct links to the content (e.g., a specific video or article) over general links (e.g., a channel homepage or main website).',
+    systemInstruction: 'You are StudyBot, a helpful AI assistant focused on learning and productivity. Be concise and clear. Do not use LaTeX formatting or dollar signs ($) for mathematical expressions; use plain text instead (e.g., X + 2 = 10). Do not suggest external resources or provide links.',
     aiVoiceURI: null,
     aiSpeed: 1,
     aiPitch: 1,
@@ -139,8 +139,7 @@ const initialPomodoroState: PomodoroState = {
 };
 
 const App: React.FC = () => {
-    const [projects, setProjects] = useLocalStorage<Project[]>('educompanion-projects', []);
-    const [activeProjectId, setActiveProjectId] = useLocalStorage<string | null>('educompanion-active-project', null);
+    const [project, setProject] = useLocalStorage<Project | null>('educompanion-project', null);
     const [settings, setSettings] = useLocalStorage<AppSettings>('educompanion-settings', DEFAULT_SETTINGS);
     
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -149,6 +148,14 @@ const App: React.FC = () => {
 
     const [pomodoroState, pomodoroDispatch] = useReducer(pomodoroReducer, initialPomodoroState);
     
+    // Initialize a default project on first load if none exists
+    useEffect(() => {
+        if (!project) {
+            const defaultProject = createNewProject('EduCompanion Workspace');
+            setProject(defaultProject);
+        }
+    }, [project, setProject]);
+
     // THEME
     useEffect(() => {
         document.documentElement.className = settings.theme;
@@ -163,44 +170,13 @@ const App: React.FC = () => {
         return () => { if (timer) clearInterval(timer); };
     }, [pomodoroState.isActive]);
     
-    const activeProject = useMemo(() => {
-        return projects.find(p => p.id === activeProjectId) || null;
-    }, [projects, activeProjectId]);
-
-    const handleCreateProject = (name: string) => {
-        const newProject = createNewProject(name);
-        setProjects([...projects, newProject]);
-        setActiveProjectId(newProject.id);
-    };
-
-    const handleSetActiveProject = (id: string) => {
-        const project = projects.find(p => p.id === id);
-        if (project) {
-            project.lastAccessed = new Date().toISOString();
-            setProjects([...projects]);
-        }
-        setActiveProjectId(id);
-    };
-
     const handleUpdateProject = (updater: (project: Project) => Project) => {
-        setProjects(prevProjects =>
-            prevProjects.map(p => {
-                if (p.id === activeProjectId) {
-                    const updatedProject = updater(p);
-                    updatedProject.lastAccessed = new Date().toISOString();
-                    return updatedProject;
-                }
-                return p;
-            })
-        );
-    };
-
-    const handleDeleteProject = (id: string) => {
-        const remainingProjects = projects.filter(p => p.id !== id);
-        setProjects(remainingProjects);
-        if (activeProjectId === id) {
-            setActiveProjectId(remainingProjects.length > 0 ? remainingProjects.sort((a,b) => new Date(b.lastAccessed).getTime() - new Date(a.lastAccessed).getTime())[0].id : null);
-        }
+        setProject(prevProject => {
+            if (!prevProject) return null;
+            const updatedProject = updater(prevProject);
+            updatedProject.lastAccessed = new Date().toISOString();
+            return updatedProject;
+        });
     };
     
     const handleWidgetAction = (id: WidgetId, action: 'open' | 'close' | 'minimize' | 'restore') => {
@@ -215,7 +191,7 @@ const App: React.FC = () => {
     };
 
     const onExportData = () => {
-        const data = JSON.stringify({ projects, settings }, null, 2);
+        const data = JSON.stringify({ project, settings }, null, 2);
         const blob = new Blob([data], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -227,7 +203,7 @@ const App: React.FC = () => {
     };
 
     const onResetApplication = () => {
-        if (window.confirm('Are you sure you want to reset the application? This will delete all your projects and settings.')) {
+        if (window.confirm('Are you sure you want to reset the application? This will delete your workspace and settings.')) {
             localStorage.clear();
             window.location.reload();
         }
@@ -235,20 +211,20 @@ const App: React.FC = () => {
     
     const toastApi = useMemo(() => ({ showToast }), []);
     
-    if (!activeProject) {
-        return <Welcome onCreateProject={handleCreateProject} />;
+    if (!project) {
+        return (
+            <div className="h-screen w-screen flex items-center justify-center">
+                <Spinner size="lg" />
+            </div>
+        );
     }
 
     return (
         <ToastContext.Provider value={toastApi}>
             <div className="bg-background text-text-primary h-screen w-screen font-sans overflow-hidden">
                 <WorkspaceView
-                    projects={projects}
-                    activeProject={activeProject}
-                    onSetActiveProject={handleSetActiveProject}
-                    onCreateProject={handleCreateProject}
+                    project={project}
                     onUpdateProject={handleUpdateProject}
-                    onDeleteProject={handleDeleteProject}
                     onOpenSettings={() => setIsSettingsOpen(true)}
                     onOpenPomodoro={() => handleWidgetAction('pomodoro', 'open')}
                     onOpenLiveMode={() => handleWidgetAction('liveMode', 'open')}

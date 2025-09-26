@@ -67,6 +67,7 @@ export const PresentationView: React.FC<PresentationViewProps> = ({ project, onU
     const [generationStatus, setGenerationStatus] = useState('');
     const [showGenModal, setShowGenModal] = useState(false);
     const [genTopic, setGenTopic] = useState('');
+    const [generatingImageForSlide, setGeneratingImageForSlide] = useState<string | null>(null);
     const { showToast } = useToast();
     const currentSlide = data.slides[currentIndex];
 
@@ -86,25 +87,6 @@ export const PresentationView: React.FC<PresentationViewProps> = ({ project, onU
             let slidesWithIds = slidesFromAI.map(s => ({ ...s, id: uuidv4(), layout: 'content' as const, imageUrl: undefined }));
             updateAndPersist({ slides: slidesWithIds });
             setCurrentIndex(0);
-
-            // Now, generate images for each slide
-            for (let i = 0; i < slidesWithIds.length; i++) {
-                setGenerationStatus(`Generating image ${i + 1} of ${slidesWithIds.length}...`);
-                const slide = slidesWithIds[i];
-                if (slide.imagePrompt) {
-                    try {
-                        await sleep(2000); // Add a delay to prevent rate-limiting
-                        const imageUrl = await geminiService.generateImage(slide.imagePrompt);
-                        slidesWithIds[i] = { ...slide, imageUrl };
-                        // Persist after each image generation
-                        updateAndPersist({ slides: [...slidesWithIds] });
-                    } catch (imgError: any) {
-                        console.error(`Failed to generate image for slide ${i + 1}:`, imgError);
-                        showToast(`Image for slide ${i + 1} failed: ${imgError.message}`, 7000);
-                        // Continue to the next slide even if one fails
-                    }
-                }
-            }
         } catch (error: any) {
             console.error(error);
             showToast(`Error generating presentation: ${error.message}`);
@@ -112,6 +94,23 @@ export const PresentationView: React.FC<PresentationViewProps> = ({ project, onU
             setIsGenerating(false);
             setGenerationStatus('');
             setGenTopic('');
+        }
+    };
+    
+    const handleGenerateImageForSlide = async (slideId: string) => {
+        const slide = data.slides.find(s => s.id === slideId);
+        if (!slide || !slide.imagePrompt) return;
+
+        setGeneratingImageForSlide(slideId);
+        try {
+            const imageUrl = await geminiService.generateImage(slide.imagePrompt);
+            const newSlides = data.slides.map(s => s.id === slideId ? { ...s, imageUrl } : s);
+            updateAndPersist({ slides: newSlides });
+        } catch (error: any) {
+            console.error("Image generation failed:", error);
+            showToast(`Failed to generate image: ${error.message}`);
+        } finally {
+            setGeneratingImageForSlide(null);
         }
     };
     
@@ -169,11 +168,17 @@ export const PresentationView: React.FC<PresentationViewProps> = ({ project, onU
             <div className="flex-1 flex flex-col p-2 sm:p-4 gap-2 sm:gap-4 overflow-hidden">
                 <div className="flex-1 flex items-center justify-center p-2 sm:p-4 bg-background-dark rounded-lg shadow-lg min-h-0">
                      <div className="w-full h-full flex flex-col items-center justify-center text-center gap-4">
-                        {currentSlide.imageUrl ? (
-                           <img src={currentSlide.imageUrl} alt={currentSlide.title} className="max-h-[40%] max-w-full object-contain rounded-lg"/>
-                        ) : (
-                           <div className="w-full h-[40%] bg-background-darkest rounded-lg flex items-center justify-center text-text-secondary">Image will appear here</div>
-                        )}
+                        <div className="w-full h-[40%] bg-background-darkest rounded-lg flex items-center justify-center text-text-secondary">
+                            {currentSlide.imageUrl ? (
+                               <img src={currentSlide.imageUrl} alt={currentSlide.title} className="max-h-full max-w-full object-contain rounded-lg"/>
+                            ) : generatingImageForSlide === currentSlide.id ? (
+                                <Spinner />
+                            ) : currentSlide.imagePrompt ? (
+                                <Button onClick={() => handleGenerateImageForSlide(currentSlide.id)} variant="secondary">Generate Image</Button>
+                            ) : (
+                                <span>Image will appear here</span>
+                            )}
+                        </div>
                         <input
                             value={currentSlide.title}
                             onChange={e => updateSlideText(currentSlide.id, 'title', e.target.value)}
@@ -190,4 +195,26 @@ export const PresentationView: React.FC<PresentationViewProps> = ({ project, onU
                     <h4 className="text-sm font-semibold text-text-secondary mb-2">Speaker Notes</h4>
                      <textarea
                         value={currentSlide.notes}
-                        onChange
+                        onChange={e => updateSlideText(currentSlide.id, 'notes', e.target.value)}
+                        className="w-full flex-1 bg-background-dark p-2 rounded text-sm resize-none focus:outline-none"
+                        placeholder="Add your speaker notes here..."
+                    />
+                </div>
+            </div>
+             {showGenModal && (
+                <Modal isOpen={showGenModal} onClose={() => setShowGenModal(false)} title="Generate New Presentation">
+                    <div className="space-y-4">
+                        <label htmlFor="gen-topic" className="block text-sm font-medium text-text-secondary">Presentation Topic</label>
+                        <input id="gen-topic" type="text" value={genTopic} onChange={e => setGenTopic(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleGenerate()} placeholder="e.g., The History of Artificial Intelligence" className="w-full bg-background-dark border border-border-color p-2 rounded-md text-text-primary" />
+                        <div className="flex justify-end gap-2">
+                            <Button onClick={() => setShowGenModal(false)} variant="secondary">Cancel</Button>
+                            <Button onClick={handleGenerate} disabled={!genTopic.trim() || isGenerating}>
+                                {isGenerating ? <Spinner /> : 'Generate'}
+                            </Button>
+                        </div>
+                    </div>
+                </Modal>
+            )}
+        </div>
+    );
+};

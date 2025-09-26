@@ -181,313 +181,176 @@ export const LiveModeOverlay: React.FC<LiveModeOverlayProps> = ({ onClose, setti
     
     recognition.onerror = (event: any) => {
         console.error("Speech recognition error:", event.error);
-        if (isMounted.current) {
-            if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-                 setError("Microphone access denied. Please enable it in your browser settings.");
-            } else {
-                 setError("An error occurred with speech recognition.");
-            }
-            setStatus('idle');
+        if (event.error === 'not-allowed') {
+            setError("Microphone access was denied.");
+        } else {
+            setError(`Speech error: ${event.error}`);
         }
+        if (isMounted.current) setStatus('idle');
+        finalTranscriptRef.current = '';
     };
+
+    recognition.onstart = () => {
+        if(isMounted.current) setStatus('listening');
+    }
 
     return () => {
         isMounted.current = false;
-        stopCameraStream();
-        if (recognitionRef.current) recognitionRef.current.abort();
-        window.speechSynthesis.cancel();
-        if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
-    };
-  }, [stopCameraStream, settings.language]);
-  
-  // Effect to manage the camera stream based on user actions
-  useEffect(() => {
-    if (!isCameraEnabled) {
-        stopCameraStream();
-        return;
-    }
-
-    let didCancel = false;
-    const startStream = async () => {
-        stopCameraStream(); // Ensure previous stream is stopped
-
-        if (devices.length === 0) return;
-
-        const deviceId = devices[currentDeviceIndex]?.deviceId;
-        const constraints = { video: { deviceId: deviceId ? { exact: deviceId } : undefined, width: 1280, height: 720 } };
-        
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            if (didCancel) {
-                stream.getTracks().forEach(track => track.stop());
-                return;
-            }
-            if (isMounted.current) {
-                streamRef.current = stream;
-                if (videoRef.current) videoRef.current.srcObject = stream;
-            } else {
-                stream.getTracks().forEach(track => track.stop());
-            }
-        } catch (err) {
-             if (isMounted.current) setError("Could not access camera. Please check permissions.");
+        if (recognitionRef.current) {
+            recognitionRef.current.stop();
         }
-    };
-    
-    startStream();
-
-    return () => {
-        didCancel = true;
         stopCameraStream();
+        window.speechSynthesis.cancel();
     };
-  }, [isCameraEnabled, currentDeviceIndex, devices, stopCameraStream]);
+  }, [settings.language, stopCameraStream]);
 
-
-  // Frame capture interval
+  // Effect for handling the camera
   useEffect(() => {
-    if (!isCameraEnabled) return;
-    const captureInterval = setInterval(() => {
-        if (videoRef.current && canvasRef.current && videoRef.current.readyState >= 3 && videoRef.current.videoWidth > 0) {
+    if (isCameraEnabled) {
+        const startStream = async () => {
+            try {
+                const deviceId = devices[currentDeviceIndex]?.deviceId;
+                const constraints = { video: { deviceId: deviceId ? { exact: deviceId } : true } };
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                if (isMounted.current) {
+                    streamRef.current = stream;
+                    if (videoRef.current) videoRef.current.srcObject = stream;
+                } else {
+                    stream.getTracks().forEach(track => track.stop());
+                }
+            } catch (err) {
+                console.error("Camera access error:", err);
+                if(isMounted.current) setError("Could not access camera. Please check permissions.");
+            }
+        };
+        startStream();
+    } else {
+        stopCameraStream();
+    }
+  }, [isCameraEnabled, devices, currentDeviceIndex, stopCameraStream]);
+
+  // Effect for capturing video frames
+  useEffect(() => {
+    let intervalId: number | null = null;
+    if (isCameraEnabled && videoRef.current) {
+        intervalId = window.setInterval(() => {
             const video = videoRef.current;
             const canvas = canvasRef.current;
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height);
-            lastFrameRef.current = canvas.toDataURL('image/jpeg', 0.7);
-        }
-    }, 1000); // Capture a frame every second
-
-    return () => clearInterval(captureInterval);
+            if (video && canvas && video.readyState >= 2) {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                canvas.getContext('2d')?.drawImage(video, 0, 0);
+                lastFrameRef.current = canvas.toDataURL('image/jpeg', 0.5);
+            }
+        }, 500); // Capture frame every 500ms
+    }
+    return () => { if (intervalId) clearInterval(intervalId); };
   }, [isCameraEnabled]);
-   
-  const startListening = useCallback(() => {
-      if (!isMounted.current || !recognitionRef.current || status === 'listening') return;
-      setError(null);
-      finalTranscriptRef.current = '';
-      if(isMounted.current) setCurrentUserTranscript('');
-      if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
-      
-      try {
-          recognitionRef.current.start();
-          if (isMounted.current) setStatus('listening');
-      } catch (e) {
-          console.error("Recognition start failed:", e);
-          if (isMounted.current) {
-              setError("Couldn't start listening. Check mic permissions.");
-              setStatus('idle');
-          }
-      }
-  }, [status]);
 
-  const speakResponse = useCallback((text: string) => {
-    if(!isMounted.current || !text) {
-        if(isMounted.current) setStatus('idle');
-        return;
-    }
-    setHighlightedWordIndex(-1);
-    window.speechSynthesis.cancel();
-    
-    const utterance = new SpeechSynthesisUtterance(text);
-    
-    if (settings.aiVoiceURI) {
-        const voice = window.speechSynthesis.getVoices().find(v => v.voiceURI === settings.aiVoiceURI);
-        if (voice) utterance.voice = voice;
-    }
-    utterance.rate = settings.aiSpeed;
-    utterance.pitch = settings.aiPitch;
-    utterance.lang = settings.language;
-
-    utterance.onboundary = (event) => {
-        if(event.name === 'word') {
-            const words = text.substring(0, event.charIndex + event.charLength).split(/\s+/);
-            if(isMounted.current) setHighlightedWordIndex(words.length - 1);
-        }
-    };
-
-    utterance.onend = () => {
-        if(isMounted.current) {
-            setTranscriptHistory(prev => [...prev, { id: uuidv4(), speaker: 'ai', text }]);
-            setCurrentAiResponse('');
-            setHighlightedWordIndex(-1);
-            setStatus('idle');
-        }
-    };
-    window.speechSynthesis.speak(utterance);
-  }, [settings.aiPitch, settings.aiSpeed, settings.aiVoiceURI, settings.language]);
-  
+  // Effect for Text-to-Speech
   useEffect(() => {
     if (status === 'speaking' && currentAiResponse) {
-      speakResponse(currentAiResponse);
-    }
-  }, [status, currentAiResponse, speakResponse]);
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(currentAiResponse);
+        
+        const voices = window.speechSynthesis.getVoices();
+        const selectedVoice = voices.find(v => v.voiceURI === settings.aiVoiceURI);
+        if (selectedVoice) {
+            utterance.voice = selectedVoice;
+        }
+        utterance.rate = settings.aiSpeed;
+        utterance.pitch = settings.aiPitch;
 
-  // Auto-scroll effect
-  useEffect(() => {
-    if (aiTranscriptRef.current) {
-        aiTranscriptRef.current.scrollTop = aiTranscriptRef.current.scrollHeight;
-    }
-    if (userTranscriptRef.current) {
-        userTranscriptRef.current.scrollTop = userTranscriptRef.current.scrollHeight;
-    }
-    if (mobileTranscriptRef.current) {
-        mobileTranscriptRef.current.scrollTop = mobileTranscriptRef.current.scrollHeight;
-    }
-  }, [transcriptHistory, currentUserTranscript, currentAiResponse]);
-
-  const handleInterrupt = () => {
-      window.speechSynthesis.cancel();
-      if (isMounted.current) {
-          setTranscriptHistory(prev => [...prev, { id: uuidv4(), speaker: 'ai', text: currentAiResponse }]);
-          setCurrentAiResponse('');
-          setStatus('idle');
-      }
-  };
-
-  const handleOrbClick = () => {
-      if (status === 'speaking') {
-          handleInterrupt();
-          return;
-      }
-      
-      if (status === 'listening') {
-          if (speechTimeoutRef.current) clearTimeout(speechTimeoutRef.current);
-          recognitionRef.current.stop();
-      } else {
-          startListening();
-      }
-  };
-
-  const handleSwitchCamera = () => {
-      if (devices.length > 1) {
-          setCurrentDeviceIndex(prev => (prev + 1) % devices.length);
-      }
-  };
-
-  const currentAiResponseWords = currentAiResponse ? currentAiResponse.split(/\s+/) : [];
-  
-  // Combined transcript for mobile view
-  const combinedTranscript = [
-      ...transcriptHistory,
-      currentUserTranscript ? { id: 'current_user', speaker: 'user', text: currentUserTranscript, isInterim: true } : null,
-      (status === 'thinking' || status === 'speaking') ? { id: 'current_ai', speaker: 'ai', text: currentAiResponse, isThinking: status === 'thinking', words: currentAiResponseWords } : null
-  ].filter(Boolean);
-
-  const isAiActive = status === 'thinking' || status === 'speaking';
-
-  return createPortal(
-    <div className="fixed inset-0 bg-background-darkest/95 backdrop-blur-lg z-50 flex flex-col p-4 text-white animate-fade-in">
-        <canvas ref={canvasRef} className="hidden" />
-        <div className="absolute top-6 right-6 flex gap-2 sm:gap-4 z-[60]">
-            {devices.length > 1 &&
-              <Button onClick={handleSwitchCamera} variant="secondary" size="sm" className="p-2 aspect-square">
-                  <RotateCameraIcon />
-              </Button>
+        utterance.onboundary = (event) => {
+            const words = currentAiResponse.split(/\s+/);
+            let charCount = 0;
+            for(let i=0; i < words.length; i++) {
+                charCount += words[i].length + 1;
+                if (event.charIndex < charCount) {
+                    if(isMounted.current) setHighlightedWordIndex(i);
+                    break;
+                }
             }
-            <Button onClick={() => setIsCameraEnabled(p => !p)} variant="secondary" size="sm">
-                Vision: {isCameraEnabled ? 'ON' : 'OFF'}
-            </Button>
-            <button onClick={onClose} className="text-white/70 hover:text-white text-4xl font-light">&times;</button>
-        </div>
-        
-        {/* Camera View Area */}
-        <div className="w-full flex justify-center py-2 flex-shrink-0">
-            <div className="relative w-full max-w-xl aspect-video rounded-lg overflow-hidden bg-background-dark shadow-lg">
-                {isCameraEnabled && <video ref={videoRef} autoPlay muted playsInline className="w-full h-full object-cover" />}
-                {!isCameraEnabled && <div className="w-full h-full flex items-center justify-center text-text-secondary">Camera Off</div>}
-            </div>
-        </div>
-        
-        {/* Transcript Area */}
-        <div className="flex-1 flex flex-col md:flex-row items-stretch md:items-end md:justify-between p-2 md:p-4 gap-4 min-h-0">
-            {/* Mobile: Single interleaved view */}
-            <div ref={mobileTranscriptRef} className="md:hidden w-full h-full overflow-y-auto custom-scrollbar space-y-4">
-                {combinedTranscript.map((turn: any) => (
-                    <div key={turn.id} className={`flex items-start gap-2 ${turn.speaker === 'user' ? 'justify-end' : 'justify-start'}`}>
-                       {turn.speaker === 'ai' && <div className="w-6 h-6 rounded-full bg-surface flex-shrink-0 mt-1" />}
-                       <div className={`rounded-lg p-3 max-w-[80%] ${turn.speaker === 'user' ? 'bg-brand-primary/20' : 'bg-surface'} ${turn.id === 'current_ai' && isAiActive ? 'animate-pulse-bg' : ''}`}>
-                           {turn.isThinking ? <TypingIndicator/> : (
-                               <p className={`text-sm leading-relaxed ${turn.isInterim ? 'italic text-text-secondary' : ''}`}>
-                                  {turn.speaker === 'ai' && turn.words ? turn.words.map((word:string, index:number) => (
-                                     <span key={index} className={index === highlightedWordIndex ? 'highlighted-word' : ''}>{word} </span>
-                                  )) : turn.text}
-                               </p>
-                           )}
-                       </div>
-                       {turn.speaker === 'user' && <div className="w-6 h-6 rounded-full bg-brand-primary flex-shrink-0 mt-1" />}
-                    </div>
-                ))}
-            </div>
+        };
 
-            {/* Desktop: AI Response (Left) */}
-            <div className={`hidden md:flex w-full max-w-sm h-full max-h-[60%] bg-surface/80 backdrop-blur-sm rounded-lg p-2 flex-col gap-1 shadow-2xl transition-all duration-300 ${isAiActive ? 'ring-2 ring-brand-secondary/50 ring-offset-2 ring-offset-background-darkest' : ''}`}>
-                <h3 className="text-sm font-bold text-text-secondary uppercase tracking-wider px-2 flex-shrink-0">AI Response</h3>
-                <div ref={aiTranscriptRef} className="flex-1 flex flex-col gap-3 overflow-y-auto pr-2 custom-scrollbar p-2 min-h-0">
-                    {transcriptHistory.filter(t => t.speaker === 'ai').map(turn => (
-                        <div key={turn.id} className="p-3 rounded-lg bg-surface text-left max-w-full">
-                            <p className="text-sm leading-relaxed">{turn.text}</p>
-                        </div>
-                    ))}
-                    {status === 'thinking' && <TypingIndicator />}
-                    {status === 'speaking' && currentAiResponse && (
-                         <div className="p-3 rounded-lg bg-brand-secondary/20 text-left">
-                            <p className="text-sm leading-relaxed">
-                                {currentAiResponseWords.map((word, index) => (
-                                    <span key={index} className={index === highlightedWordIndex ? 'highlighted-word' : ''}>{word} </span>
-                                ))}
-                            </p>
-                        </div>
-                    )}
-                </div>
-            </div>
-            
-            {/* Desktop: User Transcript (Right) */}
-            <div className="hidden md:flex w-full max-w-sm h-full max-h-[60%] bg-surface/80 backdrop-blur-sm rounded-lg p-2 flex-col gap-1 shadow-2xl">
-                 <h3 className="text-sm font-bold text-text-secondary uppercase tracking-wider text-right px-2 flex-shrink-0">Your Transcript</h3>
-                 <div ref={userTranscriptRef} className="flex-1 flex flex-col items-end gap-3 overflow-y-auto pl-2 custom-scrollbar p-2 min-h-0">
-                     {transcriptHistory.filter(t => t.speaker === 'user').map(turn => (
-                        <div key={turn.id} className="p-3 rounded-lg bg-brand-primary/20 text-right self-end max-w-full">
-                            <p className="text-sm leading-relaxed">{turn.text}</p>
-                        </div>
-                    ))}
-                    {currentUserTranscript && (
-                         <div className="p-3 rounded-lg bg-brand-primary/20 text-right self-end max-w-full">
-                            <p className="text-sm leading-relaxed italic text-text-secondary">{currentUserTranscript}</p>
-                        </div>
-                    )}
-                </div>
-            </div>
-        </div>
+        utterance.onend = () => {
+            if (isMounted.current) {
+                setTranscriptHistory(prev => [...prev, {id: uuidv4(), speaker: 'ai', text: currentAiResponse}]);
+                setCurrentAiResponse('');
+                setStatus('idle');
+                setHighlightedWordIndex(-1);
+            }
+        };
         
-        <div className="flex-shrink-0 w-full flex flex-col items-center justify-end h-36 pt-4">
-            <div className="relative flex items-center justify-center h-24">
-                <button onClick={handleOrbClick} className={`w-24 h-24 rounded-full flex items-center justify-center transition-all duration-300 ${statusConfig[status].color}`}>
-                     <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-white" viewBox="0 0 20 20" fill="currentColor">
-                        <path d="M7 4a3 3 0 016 0v6a3 3 0 11-6 0V4z" />
-                        <path fillRule="evenodd" d="M3 8a1 1 0 011-1h.5a.5.5 0 000-1H4a1 1 0 00-1 1v4a1 1 0 001 1h.5a.5.5 0 000-1H4a1 1 0 01-1-1V8zm12 0a1 1 0 011-1h.5a.5.5 0 000-1H16a1 1 0 00-1 1v4a1 1 0 001 1h.5a.5.5 0 000-1H16a1 1 0 01-1-1V8z" clipRule="evenodd" />
-                    </svg>
-                </button>
-                {status === 'speaking' && (
-                    <Button onClick={handleInterrupt} variant="secondary" size="sm" className="absolute left-full ml-4">Interrupt</Button>
-                )}
+        window.speechSynthesis.speak(utterance);
+    }
+  }, [status, currentAiResponse, settings]);
+  
+  // Handlers
+  const handleOrbClick = () => {
+    if (status === 'listening') {
+        if (recognitionRef.current) recognitionRef.current.stop();
+    } else if (status === 'idle') {
+        if (recognitionRef.current) {
+             try {
+                recognitionRef.current.start();
+            } catch (e) {
+                console.error("Could not start recognition:", e);
+                setError("Could not start listening. Please try again.");
+                setStatus('idle');
+            }
+        }
+    } else if (status === 'speaking') {
+        window.speechSynthesis.cancel();
+        if(isMounted.current) setStatus('idle');
+    }
+  };
+  
+  const handleSwitchCamera = () => {
+    if (devices.length > 1) {
+        setCurrentDeviceIndex(prev => (prev + 1) % devices.length);
+    }
+  };
+
+  const aiResponseWords = currentAiResponse.split(/\s+/);
+  
+  // FIX: Added return statement with JSX to fix component type error and render the overlay.
+  return createPortal(
+      <div className="fixed inset-0 bg-black/90 z-[100] flex flex-col items-center justify-between p-4 sm:p-8 backdrop-blur-sm text-white font-sans">
+        <div className="w-full flex justify-between items-start">
+            <div className="relative">
+                <video ref={videoRef} autoPlay playsInline muted className="w-48 h-36 object-cover rounded-lg shadow-lg transition-opacity duration-300" style={{ opacity: isCameraEnabled ? 1 : 0 }} />
+                <canvas ref={canvasRef} className="hidden" />
+                {!isCameraEnabled && <div className="w-48 h-36 bg-background-dark rounded-lg flex items-center justify-center text-text-secondary">Camera Off</div>}
             </div>
-            <p className="mt-4 text-text-secondary">{error || statusConfig[status].text}</p>
+            <div className="flex flex-col sm:flex-row gap-2">
+                {devices.length > 1 && <Button onClick={handleSwitchCamera} variant="secondary" size="sm" className="p-2 aspect-square"><RotateCameraIcon/></Button>}
+                <Button onClick={() => setIsCameraEnabled(!isCameraEnabled)} variant="secondary" size="sm" className="p-2 aspect-square">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                </Button>
+                <Button onClick={onClose} variant="secondary" size="sm" className="p-2 aspect-square">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </Button>
+            </div>
         </div>
-         <style>{`
-          @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
-          .animate-fade-in { animation: fade-in 0.3s ease-out forwards; }
-          .highlighted-word { background-color: var(--brand-secondary); color: var(--background-darkest); padding: 0px 2px; border-radius: 3px; }
-          .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-          .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
-          .custom-scrollbar::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
-          .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: var(--overlay); }
-          @keyframes pulse-bg-animation {
-            0%, 100% { background-color: var(--surface); }
-            50% { background-color: var(--overlay); }
-          }
-          .animate-pulse-bg {
-            animation: pulse-bg-animation 2s ease-in-out infinite;
-          }
-        `}</style>
-    </div>,
-    document.body
+
+        <div className="w-full max-w-4xl text-center">
+            {currentAiResponse ? (
+                 <p className="text-3xl sm:text-4xl font-semibold transition-opacity duration-500">
+                    {aiResponseWords.map((word, index) => <span key={index} className={index === highlightedWordIndex ? 'text-brand-primary' : 'text-white'}>{word} </span>)}
+                </p>
+            ) : (
+                <p className="text-2xl sm:text-3xl text-gray-400 transition-opacity duration-500 min-h-[4rem]">{currentUserTranscript || statusConfig[status].text}</p>
+            )}
+        </div>
+
+        <div className="flex flex-col items-center">
+            <button onClick={handleOrbClick} className={`w-24 h-24 rounded-full transition-all duration-300 flex items-center justify-center ${statusConfig[status].color}`}>
+                 <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" viewBox="0 0 20 20" fill="currentColor"><path d="M7 4a3 3 0 016 0v6a3 3 0 11-6 0V4z" /><path fillRule="evenodd" d="M3 8a1 1 0 011-1h.5a.5.5 0 000-1H4a1 1 0 00-1 1v4a1 1 0 001 1h.5a.5.5 0 000-1H4a1 1 0 01-1-1V8zm12 0a1 1 0 011-1h.5a.5.5 0 000-1H16a1 1 0 00-1 1v4a1 1 0 001 1h.5a.5.5 0 000-1H16a1 1 0 01-1-1V8z" clipRule="evenodd" /></svg>
+            </button>
+            {error && <p className="mt-4 text-red-400 text-center">{error}</p>}
+        </div>
+      </div>,
+      document.body
   );
 };

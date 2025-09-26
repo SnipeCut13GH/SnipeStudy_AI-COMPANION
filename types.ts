@@ -1,5 +1,6 @@
-// Fix: Removed self-import of 'Message' which was causing a name conflict.
 
+
+// Fix: Add MessageRole enum and remove circular import.
 export enum MessageRole {
   USER = 'user',
   MODEL = 'model',
@@ -73,39 +74,6 @@ export interface CodeModeToolData {
     generatedHtml: string | null;
 }
 
-export interface Flashcard {
-    id: string;
-    front: string;
-    back: string;
-}
-  
-export interface FlashcardDeck {
-    id: string;
-    title: string;
-    cards: Flashcard[];
-}
-
-export interface FlashcardToolData {
-    decks: { [deckId: string]: FlashcardDeck };
-}
-
-export interface TranscriptSegment {
-    id: string;
-    startTime: number;
-    text: string;
-}
-
-export interface AudioTranscriptionToolData {
-    audioFile?: { name: string; url: string };
-    transcript?: TranscriptSegment[];
-}
-
-export interface DocsToolData {
-    inputText: string;
-    analysisResult: string | null;
-    analysisType: 'summary' | 'keyPoints' | 'simple' | null;
-}
-
 export interface PresentationSlide {
     id:string;
     title: string;
@@ -157,28 +125,6 @@ export interface ImageEditorToolData {
     errorMessage?: string;
 }
 
-// Fix: Add missing WhiteboardDrawing and WhiteboardToolData types for the legacy WhiteboardView component.
-export interface WhiteboardDrawing {
-    id: string;
-    path: [number, number][];
-    color: string;
-    strokeWidth: number;
-}
-
-export interface WhiteboardToolData {
-    drawings: WhiteboardDrawing[];
-}
-
-export type SmartboardObject = 
-    | { id: string; type: 'drawing'; path: [number, number][]; color: string; strokeWidth: number; x: number; y: number; }
-    | { id: string; type: 'text'; text: string; x: number; y: number; width: number; height: number; fontSize: number }
-    | { id: string; type: 'image'; dataUrl: string; x: number; y: number; width: number; height: number };
-
-export interface SmartboardToolData {
-    objects: SmartboardObject[];
-    viewport: { x: number; y: number; zoom: number };
-}
-
 // Fix: Add VideoGeneratorToolData to support the video generator feature.
 export interface VideoGeneratorToolData {
     prompt: string;
@@ -188,22 +134,83 @@ export interface VideoGeneratorToolData {
     errorMessage?: string;
 }
 
+// Fix: Add missing tool data types.
+export interface WhiteboardDrawing {
+    id: string;
+    path: [number, number][];
+    color: string;
+    strokeWidth: number;
+}
+  
+export interface WhiteboardToolData {
+    drawings: WhiteboardDrawing[];
+}
+
+export interface Flashcard {
+    id: string;
+    front: string;
+    back: string;
+}
+  
+export interface FlashcardDeck {
+    id: string;
+    title: string;
+    cards: Flashcard[];
+}
+  
+export interface FlashcardToolData {
+    decks: { [deckId: string]: FlashcardDeck };
+}
+
+export interface TranscriptSegment {
+    id: string;
+    startTime: number;
+    text: string;
+}
+  
+export interface AudioTranscriptionToolData {
+    audioFile: {
+      name: string;
+      url: string;
+    };
+    transcript: TranscriptSegment[];
+}
+
+export interface DocsToolData {
+    inputText: string;
+    analysisResult: string | null;
+    analysisType: 'summary' | 'keyPoints' | 'simple' | null;
+}
+
+export type SmartboardObject =
+  | { id: string; type: 'drawing'; path: [number, number][]; x: number; y: number; color: string; strokeWidth: number }
+  | { id: string; type: 'text'; text: string; x: number; y: number; width: number; height: number; fontSize: number }
+  | { id: string; type: 'image'; dataUrl: string; x: number; y: number; width: number; height: number };
+
+export interface SmartboardToolData {
+  objects: SmartboardObject[];
+  viewport: { x: number; y: number; zoom: number };
+}
+
+
 export type ToolType = 
     | 'chat' 
     | 'quiz' 
     | 'mind_map' 
     | 'code_mode'
-    | 'flashcards'
-    | 'audio_transcription'
     | 'presentation'
     | 'kanban'
     | 'calendar'
     | 'image_editor'
-    | 'smartboard'
-    | 'docs'
     | 'games'
     // Fix: Add 'video_generator' to the list of available tools.
-    | 'video_generator';
+    | 'video_generator'
+    // Fix: Add missing tool types
+    | 'whiteboard'
+    | 'flashcards'
+    | 'audio_transcription'
+    | 'docs'
+    | 'smartboard';
 
 export interface ProjectTools {
     chat?: {
@@ -213,19 +220,19 @@ export interface ProjectTools {
     quiz?: QuizToolData;
     mind_map?: MindMapToolData;
     code_mode?: CodeModeToolData;
-    flashcards?: FlashcardToolData;
-    audio_transcription?: AudioTranscriptionToolData;
-    docs?: DocsToolData;
     presentation?: PresentationToolData;
     kanban?: KanbanToolData;
     calendar?: CalendarToolData;
     image_editor?: ImageEditorToolData;
-    // Fix: Add missing whiteboard property for legacy WhiteboardView component.
-    whiteboard?: WhiteboardToolData;
-    smartboard?: SmartboardToolData;
     games?: any;
     // Fix: Add video_generator to the project tools.
     video_generator?: VideoGeneratorToolData;
+    // Fix: Add missing tool data properties
+    whiteboard?: WhiteboardToolData;
+    flashcards?: FlashcardToolData;
+    audio_transcription?: AudioTranscriptionToolData;
+    docs?: DocsToolData;
+    smartboard?: SmartboardToolData;
 }
 
 export interface Project {
