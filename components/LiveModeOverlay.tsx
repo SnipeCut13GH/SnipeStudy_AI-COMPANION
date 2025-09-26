@@ -210,7 +210,9 @@ export const LiveModeOverlay: React.FC<LiveModeOverlayProps> = ({ onClose, setti
         const startStream = async () => {
             try {
                 const deviceId = devices[currentDeviceIndex]?.deviceId;
-                const constraints = { video: { deviceId: deviceId ? { exact: deviceId } : true } };
+                // FIX: The `deviceId` property of MediaTrackConstraints cannot be a boolean.
+                // Using `undefined` as a fallback correctly requests the default camera.
+                const constraints = { video: { deviceId: deviceId ? { exact: deviceId } : undefined } };
                 const stream = await navigator.mediaDevices.getUserMedia(constraints);
                 if (isMounted.current) {
                     streamRef.current = stream;

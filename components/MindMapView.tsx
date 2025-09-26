@@ -1,10 +1,10 @@
 import React, { useState, useRef, useEffect, TouchEvent, MouseEvent } from 'react';
-import * as geminiService from '../../services/geminiService.ts';
-import { Project, MindMapToolData, MindMapNode } from '../../types.ts';
+import * as geminiService from '../services/geminiService.ts';
+import { Project, MindMapToolData, MindMapNode } from '../types.ts';
 import { Button } from './common/Button.tsx';
 import { Spinner } from './common/Spinner.tsx';
 import { Tooltip } from './common/Tooltip.tsx';
-import { AppSettings } from '../../App.tsx';
+import { AppSettings } from '../App.tsx';
 
 interface MindMapViewProps {
   project: Project;
