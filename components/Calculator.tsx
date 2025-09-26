@@ -3,56 +3,81 @@ import { createPortal } from 'react-dom';
 
 interface CalculatorProps {
   onClose: () => void;
+  onMinimize: () => void;
 }
 
-export const Calculator: React.FC<CalculatorProps> = ({ onClose }) => {
+const MinimizeIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" /></svg>
+);
+
+
+export const Calculator: React.FC<CalculatorProps> = ({ onClose, onMinimize }) => {
   const [display, setDisplay] = useState('0');
   const [firstOperand, setFirstOperand] = useState<number | null>(null);
   const [operator, setOperator] = useState<string | null>(null);
   const [waitingForSecondOperand, setWaitingForSecondOperand] = useState(false);
   
   const [position, setPosition] = useState({ x: window.innerWidth - 350, y: 120 });
+  const [size, setSize] = useState<{ width: number; height: number | 'auto' }>({ width: 288, height: 'auto' });
+  
   const isDragging = useRef(false);
-  const dragStart = useRef({ x: 0, y: 0, initialX: 0, initialY: 0 });
+  const isResizing = useRef(false);
+  const interactionStart = useRef({ x: 0, y: 0, initialX: 0, initialY: 0, initialW: 0, initialH: 0 });
   const nodeRef = useRef<HTMLDivElement>(null);
 
+  const getClientCoords = (e: MouseEvent | TouchEvent | React.MouseEvent | React.TouchEvent) => ({
+      x: 'touches' in e ? e.touches[0].clientX : e.clientX,
+      y: 'touches' in e ? e.touches[0].clientY : e.clientY,
+  });
+
   const handleDragStart = (e: React.MouseEvent | React.TouchEvent) => {
-    if ((e.target as HTMLElement).closest('button')) return;
+    if ((e.target as HTMLElement).closest('button') || (e.target as HTMLElement).closest('.resize-handle')) return;
     isDragging.current = true;
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-    dragStart.current = {
-        x: clientX,
-        y: clientY,
-        initialX: position.x,
-        initialY: position.y,
-    };
+    const { x, y } = getClientCoords(e);
+    interactionStart.current = { ...interactionStart.current, x, y, initialX: position.x, initialY: position.y };
+  };
+  
+  const handleResizeStart = (e: React.MouseEvent | React.TouchEvent) => {
+    e.stopPropagation();
+    isResizing.current = true;
+    const { x, y } = getClientCoords(e);
+    interactionStart.current = { ...interactionStart.current, x, y, initialW: size.width, initialH: nodeRef.current?.offsetHeight || 0 };
   };
 
   useEffect(() => {
-    const handleDragMove = (e: MouseEvent | TouchEvent) => {
-      if (!isDragging.current) return;
-      const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-      const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
-      const dx = clientX - dragStart.current.x;
-      const dy = clientY - dragStart.current.y;
-      setPosition({
-        x: dragStart.current.initialX + dx,
-        y: dragStart.current.initialY + dy,
-      });
+    const handleInteractionMove = (e: MouseEvent | TouchEvent) => {
+        if (!isDragging.current && !isResizing.current) return;
+        // Fix: Prevent default browser actions (like text selection) during drag/resize for a smoother experience.
+        e.preventDefault();
+        const { x, y } = getClientCoords(e);
+        const dx = x - interactionStart.current.x;
+        const dy = y - interactionStart.current.y;
+
+        if (isDragging.current) {
+            setPosition({
+                x: interactionStart.current.initialX + dx,
+                y: interactionStart.current.initialY + dy,
+            });
+        } else if (isResizing.current) {
+            const newWidth = Math.max(260, interactionStart.current.initialW + dx);
+            const newHeight = Math.max(400, interactionStart.current.initialH + dy);
+            setSize({ width: newWidth, height: newHeight });
+        }
     };
-    const handleDragEnd = () => {
-      isDragging.current = false;
+    const handleInteractionEnd = () => {
+        isDragging.current = false;
+        isResizing.current = false;
     };
-    document.addEventListener('mousemove', handleDragMove);
-    document.addEventListener('mouseup', handleDragEnd);
-    document.addEventListener('touchmove', handleDragMove);
-    document.addEventListener('touchend', handleDragEnd);
+    
+    document.addEventListener('mousemove', handleInteractionMove);
+    document.addEventListener('mouseup', handleInteractionEnd);
+    document.addEventListener('touchmove', handleInteractionMove, { passive: false });
+    document.addEventListener('touchend', handleInteractionEnd);
     return () => {
-      document.removeEventListener('mousemove', handleDragMove);
-      document.removeEventListener('mouseup', handleDragEnd);
-      document.removeEventListener('touchmove', handleDragMove);
-      document.removeEventListener('touchend', handleDragEnd);
+        document.removeEventListener('mousemove', handleInteractionMove);
+        document.removeEventListener('mouseup', handleInteractionEnd);
+        document.removeEventListener('touchmove', handleInteractionMove);
+        document.removeEventListener('touchend', handleInteractionEnd);
     };
   }, []);
   
@@ -103,6 +128,9 @@ export const Calculator: React.FC<CalculatorProps> = ({ onClose }) => {
   };
   
   const handleClear = () => {
+      // Fix: Also reset any lingering drag/resize states to ensure button clicks are always processed.
+      isDragging.current = false;
+      isResizing.current = false;
       setDisplay('0');
       setFirstOperand(null);
       setOperator(null);
@@ -115,28 +143,42 @@ export const Calculator: React.FC<CalculatorProps> = ({ onClose }) => {
     }
   };
 
-  const buttonClasses = "bg-overlay text-text-primary rounded-lg hover:bg-border-color focus:outline-none focus:ring-2 focus:ring-brand-primary";
-  const operatorClasses = "bg-brand-primary/50 text-brand-primary rounded-lg hover:bg-brand-primary/80";
+  const handleSquareRoot = () => {
+    if (display === 'Error') return;
+    const currentValue = parseFloat(display);
+    if (currentValue >= 0) {
+        setDisplay(String(Math.sqrt(currentValue)));
+    } else {
+        setDisplay('Error');
+    }
+  };
+
+  const buttonClasses = "bg-overlay text-text-primary rounded-lg hover:bg-border-color focus:outline-none focus:ring-2 focus:ring-brand-primary h-full";
+  const operatorClasses = "bg-brand-primary/50 text-brand-primary rounded-lg hover:bg-brand-primary/80 h-full";
 
   return createPortal(
     <div 
         ref={nodeRef}
-        style={{ top: `${position.y}px`, left: `${position.x}px`}}
-        className="fixed w-72 bg-background-light rounded-lg shadow-2xl border border-border-color z-40 text-white"
+        style={{ top: `${position.y}px`, left: `${position.x}px`, width: `${size.width}px`, height: typeof size.height === 'number' ? `${size.height}px` : size.height }}
+        className="fixed bg-background-light rounded-lg shadow-2xl border border-border-color z-40 text-white flex flex-col"
     >
         <div 
-            className="p-2 bg-background-dark rounded-t-lg flex justify-between items-center cursor-move touch-none"
+            className="p-2 bg-background-dark rounded-t-lg flex justify-between items-center cursor-move touch-none flex-shrink-0"
             onMouseDown={handleDragStart}
             onTouchStart={handleDragStart}
         >
             <h3 className="text-sm font-bold">Calculator</h3>
-            <button onClick={onClose} className="text-text-secondary hover:text-white cursor-pointer">&times;</button>
+            <div className="flex items-center">
+                <button onClick={onMinimize} className="p-1 text-text-secondary hover:text-white" aria-label="Minimize"><MinimizeIcon /></button>
+                <button onClick={onClose} className="p-1 text-text-secondary hover:text-white text-lg" aria-label="Close">&times;</button>
+            </div>
         </div>
-        <div className="p-4 space-y-4">
+        <div className="p-4 space-y-4 flex flex-col flex-grow">
             <div className="bg-background-darkest text-right p-4 rounded-lg text-4xl font-mono truncate">{display}</div>
-            <div className="grid grid-cols-4 gap-2">
-                <button onClick={handleClear} className={`${buttonClasses} col-span-2 bg-danger/50 text-danger hover:bg-danger/80`}>AC</button>
+            <div className="grid grid-cols-4 gap-2 flex-grow">
+                <button onClick={handleClear} className={`${buttonClasses} bg-danger/50 text-danger hover:bg-danger/80`}>AC</button>
                 <button onClick={() => setDisplay(String(parseFloat(display) * -1))} className={buttonClasses}>+/-</button>
+                <button onClick={handleSquareRoot} className={buttonClasses}>√</button>
                 <button onClick={() => handleOperatorClick('/')} className={operatorClasses}>÷</button>
 
                 <button onClick={() => handleNumberClick('7')} className={buttonClasses}>7</button>
@@ -159,6 +201,12 @@ export const Calculator: React.FC<CalculatorProps> = ({ onClose }) => {
                 <button onClick={handleEquals} className={operatorClasses}>=</button>
             </div>
         </div>
+        <div 
+            className="resize-handle absolute bottom-0 right-0 w-4 h-4 cursor-se-resize" 
+            onMouseDown={handleResizeStart}
+            onTouchStart={handleResizeStart}
+        />
+        <style>{`.resize-handle::after { content: ''; position: absolute; right: 2px; bottom: 2px; width: 8px; height: 8px; border-right: 2px solid var(--text-secondary); border-bottom: 2px solid var(--text-secondary); opacity: 0.5; }`}</style>
     </div>,
     document.body
   );

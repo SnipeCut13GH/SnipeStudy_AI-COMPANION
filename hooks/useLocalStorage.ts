@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Dispatch, SetStateAction } from 'react';
 
 function getStorageValue<T>(key: string, defaultValue: T): T {
   if (typeof window !== 'undefined') {
@@ -15,7 +15,8 @@ function getStorageValue<T>(key: string, defaultValue: T): T {
   return defaultValue;
 }
 
-export const useLocalStorage = <T,>(key: string, defaultValue: T): [T, React.Dispatch<React.SetStateAction<T>>] => {
+// Fix: Import Dispatch and SetStateAction from React to correctly type the hook's return value.
+export const useLocalStorage = <T,>(key: string, defaultValue: T): [T, Dispatch<SetStateAction<T>>] => {
   const [value, setValue] = useState<T>(() => {
     return getStorageValue(key, defaultValue);
   });
@@ -25,6 +26,8 @@ export const useLocalStorage = <T,>(key: string, defaultValue: T): [T, React.Dis
         localStorage.setItem(key, JSON.stringify(value));
     } catch (error) {
         console.error('Error setting item to localStorage', error);
+        // Here you could show a toast to the user
+        // e.g., showToast('Could not save settings, storage might be full.');
     }
   }, [key, value]);
 

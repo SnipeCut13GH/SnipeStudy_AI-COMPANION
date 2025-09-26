@@ -2,11 +2,11 @@ import React, { useState, useRef, MouseEvent } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 // Fix: Correct import path for types.
 import { Project, WhiteboardToolData, WhiteboardDrawing } from '../../types.ts';
-import { Button } from '../common/Button';
+import { Button } from '../common/Button.tsx';
 
 interface WhiteboardViewProps {
   project: Project;
-  onUpdateProject: (updatedProject: Project) => void;
+  onUpdateProject: (updater: (project: Project) => Project) => void;
 }
 
 const getInitialData = (project: Project): WhiteboardToolData => {
@@ -43,7 +43,7 @@ export const WhiteboardView: React.FC<WhiteboardViewProps> = ({ project, onUpdat
 
     const updateAndPersist = (newData: WhiteboardToolData) => {
         setData(newData);
-        onUpdateProject({ ...project, tools: { ...project.tools, whiteboard: newData } });
+        onUpdateProject(p => ({ ...p, tools: { ...p.tools, whiteboard: newData } }));
     };
 
     const handleMouseDown = (e: MouseEvent<SVGSVGElement>) => {

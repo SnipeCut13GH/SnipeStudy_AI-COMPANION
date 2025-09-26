@@ -1,6 +1,4 @@
-
-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Project, VideoGeneratorToolData } from '../../types.ts';
 import { Button } from '../common/Button.tsx';
 import { Spinner } from '../common/Spinner.tsx';
@@ -8,7 +6,7 @@ import * as geminiService from '../../services/geminiService.ts';
 
 interface VideoGeneratorViewProps {
   project: Project;
-  onUpdateProject: (updatedProject: Project) => void;
+  onUpdateProject: (updater: (project: Project) => Project) => void;
 }
 
 const getInitialData = (project: Project): VideoGeneratorToolData => {
@@ -24,104 +22,71 @@ const POLLING_INTERVAL = 10000; // 10 seconds
 
 export const VideoGeneratorView: React.FC<VideoGeneratorViewProps> = ({ project, onUpdateProject }) => {
     const [data, setData] = useState<VideoGeneratorToolData>(getInitialData(project));
-    const pollingRef = useRef<number | null>(null);
 
-    const updateAndPersist = (newData: Partial<VideoGeneratorToolData>) => {
-        const updatedData = { ...data, ...newData };
-        if (updatedData.status !== 'error') {
-            updatedData.errorMessage = undefined;
-        }
-        setData(updatedData);
-        onUpdateProject({ ...project, tools: { ...project.tools, video_generator: updatedData }});
+    const updateData = (updater: (currentData: VideoGeneratorToolData) => Partial<VideoGeneratorToolData>) => {
+        setData(currentData => {
+            const partialNewData = updater(currentData);
+            const updated = { ...currentData, ...partialNewData };
+            if (updated.status !== 'error') {
+                updated.errorMessage = undefined;
+            }
+            onUpdateProject(p => ({ ...p, tools: { ...p.tools, video_generator: updated } }));
+            return updated;
+        });
     };
 
     const handleGenerate = async () => {
-        if (!data.prompt.trim()) return;
+        if (!data.prompt.trim() || data.status === 'generating') return;
         
-        stopPolling();
-        updateAndPersist({ status: 'generating', videoUrl: null, operation: null, errorMessage: undefined });
+        updateData(() => ({ status: 'generating', videoUrl: null, operation: null }));
 
         try {
             const initialOperation = await geminiService.generateVideo(data.prompt);
-            updateAndPersist({ operation: initialOperation });
-            startPolling(initialOperation);
+            updateData(() => ({ operation: initialOperation }));
         } catch (error: any) {
-            console.error(error);
-            let msg = "An error occurred during video generation. Please try again.";
-            if (error.message && /quota|limit|billing/i.test(error.message)) {
-                msg = "Looks like you've reached your video generation limit for now. Please check your plan and try again later.";
-            }
-            updateAndPersist({ status: 'error', errorMessage: msg });
-        }
-    };
-
-    const pollOperation = async (operation: any) => {
-        try {
-            const updatedOperation = await geminiService.getVideosOperation(operation);
-            if (updatedOperation.done) {
-                const downloadLink = updatedOperation.response?.generatedVideos?.[0]?.video?.uri;
-                if (downloadLink) {
-                    // Fetch the video as a blob and create a local URL
-                    const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
-                    if (!response.ok) {
-                        throw new Error(`Failed to fetch video: ${response.statusText}`);
-                    }
-                    const blob = await response.blob();
-                    const videoUrl = URL.createObjectURL(blob);
-                    updateAndPersist({ status: 'complete', videoUrl: videoUrl, operation: null });
-                } else {
-                    // Fix: Ensure failureReason is a string to satisfy .test() and new Error().
-                    const failureReason = String(updatedOperation.error?.message || "Video generation completed but no video URI was found.");
-                     if (/quota|limit|billing/i.test(failureReason)) {
-                        throw new Error("Looks like you've reached your video generation limit for now. Please check your plan and try again later.");
-                    }
-                    throw new Error(failureReason);
-                }
-                stopPolling();
-            } else {
-                // Not done, continue polling
-                updateAndPersist({ operation: updatedOperation });
-                // We need to re-start the timer with the updated operation object
-                startPolling(updatedOperation);
-            }
-        } catch (error: any) {
-            console.error("Polling error:", error);
-            let msg = "An error occurred while checking the video status. Please try again.";
-            if (error.message && /quota|limit|billing/i.test(error.message)) {
-                msg = "Looks like you've reached your video generation limit for now. Please check your plan and try again later.";
-            }
-            updateAndPersist({ status: 'error', errorMessage: msg });
-            stopPolling();
+            console.error("Failed to start video generation:", error);
+            updateData(() => ({ status: 'error', errorMessage: `Failed to start generation: ${error.message}` }));
         }
     };
     
-    const startPolling = (operation: any) => {
-        stopPolling(); // Ensure no multiple polls are running
-        pollingRef.current = window.setInterval(() => {
-            // pass the latest operation object to the poller
-            setData(currentData => {
-                if (currentData.operation) {
-                    pollOperation(currentData.operation);
-                }
-                return currentData;
-            });
-        }, POLLING_INTERVAL);
-    };
-
-    const stopPolling = () => {
-        if (pollingRef.current) {
-            clearInterval(pollingRef.current);
-            pollingRef.current = null;
+    const pollOperation = useCallback(async () => {
+        if (data.status !== 'generating' || !data.operation) {
+            return;
         }
-    };
+
+        try {
+            const updatedOperation = await geminiService.getVideosOperation(data.operation);
+            if (updatedOperation.done) {
+                const downloadLink = updatedOperation.response?.generatedVideos?.[0]?.video?.uri;
+                if (downloadLink) {
+                    const response = await fetch(`${downloadLink}&key=${process.env.API_KEY}`);
+                    if (!response.ok) throw new Error(`Failed to fetch video: ${response.statusText}`);
+                    const blob = await response.blob();
+                    const videoUrl = URL.createObjectURL(blob);
+                    updateData(() => ({ status: 'complete', videoUrl, operation: null }));
+                } else {
+                    const failureReason = String(updatedOperation.error?.message || "Video generation completed but no video URI was found.");
+                    throw new Error(failureReason);
+                }
+            } else {
+                updateData(() => ({ operation: updatedOperation }));
+            }
+        } catch (error: any) {
+            console.error("Polling error:", error);
+            let errorMessage = error.message || "An unknown error occurred during video processing.";
+            if (String(error.message).includes('500')) {
+                errorMessage = "The video generation service encountered an internal error. Please try again later.";
+            }
+            updateData(() => ({ status: 'error', errorMessage }));
+        }
+    }, [data.operation, data.status]);
 
     useEffect(() => {
-        // When the component mounts, if there's an ongoing operation, resume polling.
-        if (data.operation && data.status === 'generating') {
-            startPolling(data.operation);
+        if (data.status === 'generating' && data.operation) {
+            const intervalId = setInterval(pollOperation, POLLING_INTERVAL);
+            return () => clearInterval(intervalId);
         }
-        return () => stopPolling(); // Cleanup on unmount
-    }, []);
+    }, [data.status, data.operation, pollOperation]);
 
     const renderStatus = () => {
         switch (data.status) {
@@ -158,7 +123,7 @@ export const VideoGeneratorView: React.FC<VideoGeneratorViewProps> = ({ project,
                 <input
                     type="text"
                     value={data.prompt}
-                    onChange={e => updateAndPersist({ prompt: e.target.value })}
+                    onChange={e => setData(d => ({ ...d, prompt: e.target.value }))}
                     placeholder="e.g., A majestic whale swimming through a coral reef"
                     className="w-full sm:flex-1 bg-background-light border border-border-color p-3 rounded-md text-text-primary"
                     disabled={data.status === 'generating'}
@@ -172,7 +137,7 @@ export const VideoGeneratorView: React.FC<VideoGeneratorViewProps> = ({ project,
                     <a href={data.videoUrl} download={`snipe-study-video-${Date.now()}.mp4`}>
                         <Button variant="secondary">Download Video</Button>
                     </a>
-                     <Button onClick={() => updateAndPersist({ status: 'idle', videoUrl: null, prompt: ''})} variant="ghost">Create another</Button>
+                     <Button onClick={() => updateData(() => ({ status: 'idle', videoUrl: null, prompt: ''}))} variant="ghost">Create another</Button>
                 </div>
             )}
         </div>

@@ -1,108 +1,175 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useReducer, useMemo, createContext, useContext } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useLocalStorage } from './hooks/useLocalStorage.ts';
-import { Project, ProjectTools, ToolType } from './types.ts';
+import { Project } from './types.ts';
 import { Welcome } from './components/Welcome.tsx';
 import { WorkspaceView } from './views/WorkspaceView.tsx';
 import { Settings } from './components/Settings.tsx';
 import { PomodoroTimer } from './components/PomodoroTimer.tsx';
-import { LiveModeOverlay } from './components/LiveModeOverlay.tsx';
 import { Calculator } from './components/Calculator.tsx';
+import { LiveModeOverlay } from './components/LiveModeOverlay.tsx';
+import { Toast } from './components/Toast.tsx';
 
-const defaultSettings = {
-    theme: 'dark' as 'dark' | 'light',
-    username: 'User',
-    fontSize: 14,
-    systemInstruction: "You are SnipeStudy, an expert AI tutor. Your primary goal is to help users learn by guiding them to the answers, not by providing solutions directly. When faced with academic questions, especially in subjects like math, science, or history, adopt a Socratic method. Break down problems into smaller steps, ask leading questions to stimulate their thinking, and explain underlying concepts. Never give the final answer outright for educational problems. Instead, empower the user to discover the solution on their own. For general knowledge or non-academic questions, you can be more direct.",
-    aiVoiceURI: null as string | null,
+// TYPE DEFINITIONS
+export interface AppSettings {
+  theme: 'light' | 'dark';
+  username: string;
+  systemInstruction: string;
+  aiVoiceURI: string | null;
+  aiSpeed: number;
+  aiPitch: number;
+  language: string;
+}
+
+export type PomodoroMode = 'work' | 'shortBreak' | 'longBreak';
+
+const MODE_TIMES: Record<PomodoroMode, number> = {
+  work: 25 * 60,
+  shortBreak: 5 * 60,
+  longBreak: 15 * 60,
+};
+
+export interface PomodoroState {
+  mode: PomodoroMode;
+  timeLeft: number;
+  isActive: boolean;
+  cycles: number;
+}
+
+export type PomodoroAction =
+  | { type: 'TOGGLE' }
+  | { type: 'RESET' }
+  | { type: 'SWITCH_MODE'; mode: PomodoroMode }
+  | { type: 'TICK' };
+
+export type WidgetId = 'pomodoro' | 'calculator' | 'liveMode';
+export type WidgetStatus = 'closed' | 'open' | 'minimized';
+export type WidgetsState = Record<WidgetId, WidgetStatus>;
+
+// TOAST CONTEXT
+interface ToastContextType {
+  showToast: (message: string, duration?: number) => void;
+}
+const ToastContext = createContext<ToastContextType | undefined>(undefined);
+export const useToast = () => {
+  const context = useContext(ToastContext);
+  if (!context) throw new Error("useToast must be used within a ToastProvider");
+  return context;
+};
+
+// POMODORO REDUCER
+const pomodoroReducer = (state: PomodoroState, action: PomodoroAction): PomodoroState => {
+  switch (action.type) {
+    case 'TOGGLE':
+      return { ...state, isActive: !state.isActive };
+    case 'TICK':
+      if (!state.isActive) {
+        return state;
+      }
+      if (state.timeLeft > 0) {
+        return { ...state, timeLeft: state.timeLeft - 1 };
+      }
+      // Time is up, switch modes
+      if (state.mode === 'work') {
+        const newCycles = state.cycles + 1;
+        const nextMode: PomodoroMode = newCycles % 4 === 0 ? 'longBreak' : 'shortBreak';
+        return {
+          ...state,
+          isActive: false,
+          cycles: newCycles,
+          mode: nextMode,
+          timeLeft: MODE_TIMES[nextMode],
+        };
+      } else {
+        // When a break ends, return to 'work' mode.
+        return {
+          ...state,
+          isActive: false,
+          mode: 'work',
+          timeLeft: MODE_TIMES.work,
+        };
+      }
+    case 'SWITCH_MODE':
+      return { ...state, mode: action.mode, timeLeft: MODE_TIMES[action.mode], isActive: false };
+    case 'RESET':
+      return { ...state, timeLeft: MODE_TIMES[state.mode], isActive: false };
+    default:
+      return state;
+  }
+};
+
+const DEFAULT_SETTINGS: AppSettings = {
+    theme: 'dark',
+    username: 'Studious Snipe',
+    systemInstruction: 'You are StudyBot, a helpful AI assistant focused on learning and productivity. Be concise and clear. When providing links, prefer direct links to the content (e.g., a specific video or article) over general links (e.g., a channel homepage or main website).',
+    aiVoiceURI: null,
     aiSpeed: 1,
     aiPitch: 1,
+    language: 'en',
 };
 
-export type AppSettings = typeof defaultSettings;
-
-// Fix: Add 'whiteboard' and 'docs' to ensure they are initialized for new projects.
-const DEFAULT_TOOLS: ToolType[] = [
-    'chat', 'smartboard', 'kanban', 'quiz', 'flashcards', 'story',
-    'presentation', 'mind_map', 'calendar', 'code_mode',
-    'image_editor', 'video_generator', 'audio_transcription', 'whiteboard', 'docs'
-];
-
-const createInitialToolData = (tool: ToolType): ProjectTools[keyof ProjectTools] => {
-    switch (tool) {
-        case 'chat': return { messages: [] };
-        case 'quiz': return { topic: '', questions: [], currentQuestionIndex: 0, userAnswers: [], score: null, state: 'config' };
-        case 'story': return { prompt: '', story: null, slideshow: undefined };
-        case 'mind_map': return { nodes: [] };
-        case 'code_mode': return { prompt: '', generatedHtml: null };
-        case 'flashcards': return { decks: {} };
-        case 'audio_transcription': return { audioFile: undefined, transcript: undefined };
-        case 'presentation': return { slides: [] };
-        case 'kanban': return { tasks: {}, columns: {
-            'col-1': { id: 'col-1', title: 'To Do', taskIds: [] },
-            'col-2': { id: 'col-2', title: 'In Progress', taskIds: [] },
-            'col-3': { id: 'col-3', title: 'Done', taskIds: [] },
-        }, columnOrder: ['col-1', 'col-2', 'col-3']};
-        case 'calendar': return { events: [] };
-        case 'image_editor': return { originalImage: null, editedImage: null, prompt: '', status: 'idle' };
-        case 'smartboard': return { objects: [], viewport: { x: 0, y: 0, zoom: 1 } };
-        case 'video_generator': return { prompt: '', videoUrl: null, operation: null, status: 'idle' };
-        case 'whiteboard': return { drawings: [] };
-        case 'docs': return { inputText: '', analysisResult: null, analysisType: null };
-        default: return {};
-    }
+const createNewProject = (name: string): Project => {
+    const defaultSessionId = uuidv4();
+    return {
+        id: uuidv4(),
+        name,
+        tools: {
+            chat: {
+                sessions: {
+                    [defaultSessionId]: {
+                        id: defaultSessionId,
+                        title: 'General Chat',
+                        messages: [],
+                        createdAt: new Date().toISOString(),
+                    }
+                },
+                activeSessionId: defaultSessionId
+            }
+        },
+        lastAccessed: new Date().toISOString(),
+    };
 };
 
+// Fix: Define and type the initial state for the pomodoro reducer outside the component to prevent type inference issues.
+const initialPomodoroState: PomodoroState = {
+    mode: 'work',
+    timeLeft: MODE_TIMES.work,
+    isActive: false,
+    cycles: 0,
+};
 
-function App() {
-    const [projects, setProjects] = useLocalStorage<Project[]>('snipe-study-projects', []);
-    const [activeProjectId, setActiveProjectId] = useLocalStorage<string | null>('snipe-study-active-project', null);
-    const [settings, setSettings] = useLocalStorage('snipe-study-settings', defaultSettings);
+const App: React.FC = () => {
+    const [projects, setProjects] = useLocalStorage<Project[]>('educompanion-projects', []);
+    const [activeProjectId, setActiveProjectId] = useLocalStorage<string | null>('educompanion-active-project', null);
+    const [settings, setSettings] = useLocalStorage<AppSettings>('educompanion-settings', DEFAULT_SETTINGS);
     
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [isPomodoroOpen, setIsPomodoroOpen] = useState(false);
-    const [isLiveModeOpen, setIsLiveModeOpen] = useState(false);
-    const [isCalculatorOpen, setIsCalculatorOpen] = useState(false);
-    const [installPrompt, setInstallPrompt] = useState<any>(null);
+    const [widgets, setWidgets] = useState<WidgetsState>({ pomodoro: 'closed', calculator: 'closed', liveMode: 'closed' });
+    const [toast, setToast] = useState<{ message: string; id: number; duration: number } | null>(null);
 
+    const [pomodoroState, pomodoroDispatch] = useReducer(pomodoroReducer, initialPomodoroState);
+    
+    // THEME
     useEffect(() => {
         document.documentElement.className = settings.theme;
-        document.documentElement.style.fontSize = `${settings.fontSize}px`;
-    }, [settings.theme, settings.fontSize]);
+    }, [settings.theme]);
     
+    // POMODORO TIMER
     useEffect(() => {
-        if ('serviceWorker' in navigator) {
-          window.addEventListener('load', () => {
-            navigator.serviceWorker.register('/sw.js').then(registration => {
-              console.log('ServiceWorker registration successful with scope: ', registration.scope);
-            }, err => {
-              console.log('ServiceWorker registration failed: ', err);
-            });
-          });
+        let timer: number | null = null;
+        if (pomodoroState.isActive) {
+            timer = window.setInterval(() => pomodoroDispatch({ type: 'TICK' }), 1000);
         }
-    }, []);
-
-    useEffect(() => {
-        const handleBeforeInstallPrompt = (e: Event) => {
-            e.preventDefault();
-            setInstallPrompt(e);
-        };
-        window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-        return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    }, []);
+        return () => { if (timer) clearInterval(timer); };
+    }, [pomodoroState.isActive]);
+    
+    const activeProject = useMemo(() => {
+        return projects.find(p => p.id === activeProjectId) || null;
+    }, [projects, activeProjectId]);
 
     const handleCreateProject = (name: string) => {
-        const newProject: Project = {
-            id: uuidv4(),
-            name,
-            tools: DEFAULT_TOOLS.reduce((acc, tool) => {
-                acc[tool] = createInitialToolData(tool);
-                return acc;
-            }, {} as ProjectTools),
-            lastAccessed: new Date().toISOString(),
-        };
-        const updatedProjects = [...projects, newProject];
-        setProjects(updatedProjects);
+        const newProject = createNewProject(name);
+        setProjects([...projects, newProject]);
         setActiveProjectId(newProject.id);
     };
 
@@ -115,70 +182,66 @@ function App() {
         setActiveProjectId(id);
     };
 
-    const handleUpdateProject = (updatedProject: Project) => {
-        setProjects(projects.map(p => p.id === updatedProject.id ? updatedProject : p));
-    };
-    
-    const handleDeleteProject = (id: string) => {
-        if (window.confirm('Are you sure you want to delete this project?')) {
-            const updatedProjects = projects.filter(p => p.id !== id);
-            setProjects(updatedProjects);
-            if (activeProjectId === id) {
-                const sortedProjects = [...updatedProjects].sort((a, b) => new Date(b.lastAccessed).getTime() - new Date(a.lastAccessed).getTime());
-                setActiveProjectId(sortedProjects.length > 0 ? sortedProjects[0].id : null);
-            }
-        }
+    const handleUpdateProject = (updater: (project: Project) => Project) => {
+        setProjects(prevProjects =>
+            prevProjects.map(p => {
+                if (p.id === activeProjectId) {
+                    const updatedProject = updater(p);
+                    updatedProject.lastAccessed = new Date().toISOString();
+                    return updatedProject;
+                }
+                return p;
+            })
+        );
     };
 
-    const handleExportData = () => {
+    const handleDeleteProject = (id: string) => {
+        const remainingProjects = projects.filter(p => p.id !== id);
+        setProjects(remainingProjects);
+        if (activeProjectId === id) {
+            setActiveProjectId(remainingProjects.length > 0 ? remainingProjects.sort((a,b) => new Date(b.lastAccessed).getTime() - new Date(a.lastAccessed).getTime())[0].id : null);
+        }
+    };
+    
+    const handleWidgetAction = (id: WidgetId, action: 'open' | 'close' | 'minimize' | 'restore') => {
+        let status: WidgetStatus = 'closed';
+        if (action === 'open' || action === 'restore') status = 'open';
+        else if (action === 'minimize') status = 'minimized';
+        setWidgets(prev => ({ ...prev, [id]: status }));
+    };
+
+    const showToast = (message: string, duration = 3000) => {
+        setToast({ message, id: Date.now(), duration });
+    };
+
+    const onExportData = () => {
         const data = JSON.stringify({ projects, settings }, null, 2);
         const blob = new Blob([data], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = 'snipestudy_backup.json';
-        link.click();
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'educompanion_backup.json';
+        a.click();
         URL.revokeObjectURL(url);
+        showToast('Data exported successfully.');
+    };
+
+    const onResetApplication = () => {
+        if (window.confirm('Are you sure you want to reset the application? This will delete all your projects and settings.')) {
+            localStorage.clear();
+            window.location.reload();
+        }
     };
     
-    const handleResetApplication = () => {
-        if (window.confirm('Are you sure? This will delete all your projects and settings.')) {
-            setProjects([]);
-            setSettings(defaultSettings);
-            setActiveProjectId(null);
-        }
-    };
+    const toastApi = useMemo(() => ({ showToast }), []);
+    
+    if (!activeProject) {
+        return <Welcome onCreateProject={handleCreateProject} />;
+    }
 
-    const handleInstallClick = () => {
-        if (!installPrompt) return;
-        installPrompt.prompt();
-        installPrompt.userChoice.then((choiceResult: { outcome: string }) => {
-            if (choiceResult.outcome === 'accepted') {
-                console.log('User accepted the A2HS prompt');
-            } else {
-                console.log('User dismissed the A2HS prompt');
-            }
-            setInstallPrompt(null);
-        });
-    };
-
-    const foundProject = projects.find(p => p.id === activeProjectId);
-
-    // Hydrate project with default tool data to prevent crashes on adding new tools
-    const activeProject = foundProject ? {
-        ...foundProject,
-        tools: {
-            ...DEFAULT_TOOLS.reduce((acc, tool) => {
-                acc[tool] = createInitialToolData(tool);
-                return acc;
-            }, {} as ProjectTools),
-            ...(foundProject.tools || {}),
-        }
-    } : undefined;
-
-    const mainContent = () => {
-        if (activeProject) {
-            return (
+    return (
+        <ToastContext.Provider value={toastApi}>
+            <div className="bg-background text-text-primary h-screen w-screen font-sans overflow-hidden">
                 <WorkspaceView
                     projects={projects}
                     activeProject={activeProject}
@@ -187,55 +250,50 @@ function App() {
                     onUpdateProject={handleUpdateProject}
                     onDeleteProject={handleDeleteProject}
                     onOpenSettings={() => setIsSettingsOpen(true)}
-                    onOpenPomodoro={() => setIsPomodoroOpen(true)}
-                    onOpenLiveMode={() => setIsLiveModeOpen(true)}
-                    onOpenCalculator={() => setIsCalculatorOpen(true)}
+                    onOpenPomodoro={() => handleWidgetAction('pomodoro', 'open')}
+                    onOpenLiveMode={() => handleWidgetAction('liveMode', 'open')}
+                    onOpenCalculator={() => handleWidgetAction('calculator', 'open')}
                     settings={settings}
+                    openWidgets={widgets}
+                    onWidgetAction={handleWidgetAction}
                 />
-            );
-        }
-        return <Welcome onCreateProject={handleCreateProject} />;
-    };
-    
-    return (
-        <div className="h-full w-full bg-surface font-sans text-text-primary">
-            {mainContent()}
-
-            {isSettingsOpen && (
-                <Settings 
-                    isOpen={isSettingsOpen} 
+                
+                {isSettingsOpen && <Settings
+                    isOpen={isSettingsOpen}
                     onClose={() => setIsSettingsOpen(false)}
                     settings={settings}
-                    onThemeChange={theme => setSettings(s => ({...s, theme}))}
-                    onUsernameChange={name => setSettings(s => ({...s, username: name}))}
-                    onFontSizeChange={size => setSettings(s => ({...s, fontSize: size}))}
+                    onThemeChange={theme => setSettings(s => ({ ...s, theme }))}
+                    onUsernameChange={name => setSettings(s => ({ ...s, username: name }))}
                     onSystemInstructionChange={instruction => setSettings(s => ({...s, systemInstruction: instruction}))}
-                    onAiVoiceChange={uri => setSettings(s => ({ ...s, aiVoiceURI: uri }))}
+                    onAiVoiceChange={voiceURI => setSettings(s => ({...s, aiVoiceURI: voiceURI}))}
                     onAiSpeedChange={speed => setSettings(s => ({ ...s, aiSpeed: speed }))}
                     onAiPitchChange={pitch => setSettings(s => ({ ...s, aiPitch: pitch }))}
-                    onExportData={handleExportData}
-                    onResetApplication={handleResetApplication}
-                />
-            )}
+                    onLanguageChange={language => setSettings(s => ({ ...s, language }))}
+                    onExportData={onExportData}
+                    onResetApplication={onResetApplication}
+                />}
+                
+                {widgets.pomodoro === 'open' && <PomodoroTimer
+                    pomodoroState={pomodoroState}
+                    onAction={pomodoroDispatch}
+                    onClose={() => handleWidgetAction('pomodoro', 'close')}
+                    onMinimize={() => handleWidgetAction('pomodoro', 'minimize')}
+                />}
 
-            {isPomodoroOpen && <PomodoroTimer onClose={() => setIsPomodoroOpen(false)} />}
-            {isCalculatorOpen && <Calculator onClose={() => setIsCalculatorOpen(false)} />}
-            {isLiveModeOpen && <LiveModeOverlay onClose={() => setIsLiveModeOpen(false)} settings={settings} />}
+                {widgets.calculator === 'open' && <Calculator
+                    onClose={() => handleWidgetAction('calculator', 'close')}
+                    onMinimize={() => handleWidgetAction('calculator', 'minimize')}
+                />}
 
-            {installPrompt && (
-                <button
-                    onClick={handleInstallClick}
-                    className="fixed bottom-6 right-6 bg-brand-primary text-white font-bold py-3 px-5 rounded-full shadow-lg hover:bg-opacity-90 transition-all duration-300 z-50 flex items-center gap-2 animate-bounce"
-                    title="Install SnipeStudy to your device"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
-                    </svg>
-                    Install App
-                </button>
-            )}
-        </div>
+                {widgets.liveMode === 'open' && <LiveModeOverlay
+                    onClose={() => handleWidgetAction('liveMode', 'close')}
+                    settings={settings}
+                />}
+
+                {toast && <Toast key={toast.id} message={toast.message} duration={toast.duration} onClose={() => setToast(null)} />}
+            </div>
+        </ToastContext.Provider>
     );
-}
+};
 
 export default App;

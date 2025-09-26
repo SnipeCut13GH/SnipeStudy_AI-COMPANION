@@ -1,6 +1,6 @@
 import React from 'react';
 import { User } from '../../types.ts';
-import { Tooltip } from '../common/Tooltip';
+import { Tooltip } from '../common/Tooltip.tsx';
 
 interface UserPresenceProps {
   currentUser: User;

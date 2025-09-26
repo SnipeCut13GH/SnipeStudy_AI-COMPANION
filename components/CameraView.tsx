@@ -1,14 +1,19 @@
 
+
 import React, { useRef, useEffect, useState, useCallback } from 'react';
-import { ImageCropper } from './ImageCropper';
+import { ImageCropper } from './ImageCropper.tsx';
 
 const CloseIcon = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
 );
 
-const SwitchCameraIcon = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h5M20 20v-5h-5M4 20l16-16" /></svg>
+const RotateCameraIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h5M20 20v-5h-5M20.5 9.5a8.5 8.5 0 10-1.256 4.244" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15 4.5l-1.5 1.5M4.5 15l1.5-1.5" />
+    </svg>
 );
+
 
 interface CameraViewProps {
   onPhotoTaken: (dataUrl: string) => void;
@@ -167,7 +172,7 @@ export const CameraView: React.FC<CameraViewProps> = ({ onPhotoTaken, onClose })
       <div className="absolute inset-0 flex flex-col justify-between p-6 pointer-events-none">
         <div className="flex justify-between w-full">
             {devices.length > 1 ? (
-                <button onClick={handleSwitchCamera} className="bg-black/50 text-white rounded-full p-3 hover:bg-black/75 transition-colors pointer-events-auto" aria-label="Switch camera"><SwitchCameraIcon /></button>
+                <button onClick={handleSwitchCamera} className="bg-black/50 text-white rounded-full p-3 hover:bg-black/75 transition-colors pointer-events-auto" aria-label="Switch camera"><RotateCameraIcon /></button>
             ) : <div />}
             <button onClick={onClose} className="bg-black/50 text-white rounded-full p-3 hover:bg-black/75 transition-colors pointer-events-auto" aria-label="Close camera"><CloseIcon /></button>
         </div>

@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Project, CodeModeToolData } from '../../types.ts';
 import { Button } from '../common/Button.tsx';
@@ -7,7 +6,7 @@ import * as geminiService from '../../services/geminiService.ts';
 
 interface CodeModeViewProps {
   project: Project;
-  onUpdateProject: (updatedProject: Project) => void;
+  onUpdateProject: (updater: (project: Project) => Project) => void;
 }
 
 const getInitialData = (project: Project): CodeModeToolData => {
@@ -25,7 +24,7 @@ export const CodeModeView: React.FC<CodeModeViewProps> = ({ project, onUpdatePro
     const updateAndPersist = (newData: Partial<CodeModeToolData>) => {
         const updatedData = { ...data, ...newData };
         setData(updatedData);
-        onUpdateProject({ ...project, tools: { ...project.tools, code_mode: updatedData } });
+        onUpdateProject(p => ({ ...p, tools: { ...p.tools, code_mode: updatedData } }));
     };
 
     const handleBuildApp = async () => {
@@ -35,11 +34,10 @@ export const CodeModeView: React.FC<CodeModeViewProps> = ({ project, onUpdatePro
         try {
             const html = await geminiService.generateHtmlApp(data.prompt);
             updateAndPersist({ generatedHtml: html });
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to build app", error);
-            const errorMessage = error instanceof Error ? error.message : "An unknown error occurred during generation.";
-            setError(errorMessage);
-            const errorHtml = `<html><body style="font-family: sans-serif; color: #ffcdd2; background-color: #1a1a1a; padding: 2rem;"><h2>Error Building App</h2><p>The AI failed to generate the application. Please try again with a more specific prompt.</p><p><strong>Details:</strong> ${errorMessage}</p></body></html>`;
+            setError(error.message);
+            const errorHtml = `<html><body style="font-family: sans-serif; color: #ffcdd2; background-color: #1a1a1a; padding: 2rem;"><h2>Error Building App</h2><p>The AI failed to generate the application. Please try again with a more specific prompt.</p><p><strong>Details:</strong> ${error.message}</p></body></html>`;
             updateAndPersist({ generatedHtml: errorHtml });
         } finally {
             setIsLoading(false);

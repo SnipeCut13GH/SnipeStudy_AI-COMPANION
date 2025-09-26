@@ -4,10 +4,14 @@ import { Project, FlashcardToolData, FlashcardDeck, Flashcard } from '../../type
 import * as geminiService from '../../services/geminiService.ts';
 import { Button } from '../common/Button.tsx';
 import { Spinner } from '../common/Spinner.tsx';
+// Fix: Import AppSettings to access language preference.
+import { AppSettings } from '../../App.tsx';
 
 interface FlashcardViewProps {
   project: Project;
-  onUpdateProject: (updatedProject: Project) => void;
+  onUpdateProject: (updater: (project: Project) => Project) => void;
+  // Fix: Add settings prop to pass down language preference.
+  settings: AppSettings;
 }
 
 const getInitialData = (project: Project): FlashcardToolData => {
@@ -66,7 +70,7 @@ const DeckStudyView: React.FC<{ deck: FlashcardDeck; onExit: () => void }> = ({ 
     );
 };
 
-export const FlashcardView: React.FC<FlashcardViewProps> = ({ project, onUpdateProject }) => {
+export const FlashcardView: React.FC<FlashcardViewProps> = ({ project, onUpdateProject, settings }) => {
     const [data, setData] = useState<FlashcardToolData>(getInitialData(project));
     const [activeDeckId, setActiveDeckId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
@@ -76,14 +80,15 @@ export const FlashcardView: React.FC<FlashcardViewProps> = ({ project, onUpdateP
 
     const updateAndPersist = (newData: FlashcardToolData) => {
         setData(newData);
-        onUpdateProject({ ...project, tools: { ...project.tools, flashcards: newData } });
+        onUpdateProject(p => ({ ...p, tools: { ...p.tools, flashcards: newData } }));
     };
 
     const handleCreateDeck = async () => {
         if (!topicInput.trim() || isLoading) return;
         setIsLoading(true);
         try {
-            const cardsData = await geminiService.generateFlashcards(topicInput, countInput);
+            // Fix: Pass the user's selected language to the flashcard generation service.
+            const cardsData = await geminiService.generateFlashcards(topicInput, countInput, settings.language);
             const newDeck: FlashcardDeck = {
                 id: uuidv4(),
                 title: topicInput,
@@ -118,7 +123,8 @@ export const FlashcardView: React.FC<FlashcardViewProps> = ({ project, onUpdateP
             )}
              {Object.keys(data.decks).length > 0 && (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {Object.values(data.decks).map(deck => (
+                    {/* Fix: Add explicit type to 'deck' to resolve 'unknown' type errors. */}
+                    {Object.values(data.decks).map((deck: FlashcardDeck) => (
                         <div key={deck.id} className="p-6 bg-background-dark rounded-lg cursor-pointer hover:bg-overlay transition-colors" onClick={() => setActiveDeckId(deck.id)}>
                             <h3 className="text-xl font-semibold">{deck.title}</h3>
                             <p className="text-text-secondary">{deck.cards.length} cards</p>

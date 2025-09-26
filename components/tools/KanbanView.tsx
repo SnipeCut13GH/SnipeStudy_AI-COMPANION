@@ -1,27 +1,26 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { Project, KanbanToolData, KanbanColumn, KanbanTask } from '../../types';
-import { Button } from '../common/Button';
-import { Modal } from '../common/Modal';
-import { Spinner } from '../common/Spinner';
-import * as geminiService from '../../services/geminiService';
+import { Project, KanbanToolData, KanbanColumn, KanbanTask } from '../../types.ts';
+import { Button } from '../common/Button.tsx';
+import { Modal } from '../common/Modal.tsx';
+import { Spinner } from '../common/Spinner.tsx';
+import * as geminiService from '../../services/geminiService.ts';
+import { AppSettings } from '../../App.tsx';
 
 interface KanbanViewProps {
   project: Project;
-  onUpdateProject: (updatedProject: Project) => void;
+  onUpdateProject: (updater: (project: Project) => Project) => void;
+  // Fix: Add settings prop to be able to access language preference.
+  settings: AppSettings;
 }
 
 const getInitialData = (project: Project): KanbanToolData => {
   return project.tools.kanban || {
-    tasks: {
-      'task-1': { id: 'task-1', content: 'Set up the project repository' },
-      'task-2': { id: 'task-2', content: 'Define the application structure' },
-      'task-3': { id: 'task-3', content: 'Deploy the first version' },
-    },
+    tasks: {},
     columns: {
-      'col-1': { id: 'col-1', title: 'To Do', taskIds: ['task-1', 'task-2'] },
+      'col-1': { id: 'col-1', title: 'To Do', taskIds: [] },
       'col-2': { id: 'col-2', title: 'In Progress', taskIds: [] },
-      'col-3': { id: 'col-3', title: 'Done', taskIds: ['task-3'] },
+      'col-3': { id: 'col-3', title: 'Done', taskIds: [] },
     },
     columnOrder: ['col-1', 'col-2', 'col-3'],
   };
@@ -69,17 +68,32 @@ const AddTaskForm: React.FC<{
     );
 };
 
-export const KanbanView: React.FC<KanbanViewProps> = ({ project, onUpdateProject }) => {
+export const KanbanView: React.FC<KanbanViewProps> = ({ project, onUpdateProject, settings }) => {
   const [data, setData] = useState<KanbanToolData>(getInitialData(project));
   const [addingTaskToColumn, setAddingTaskToColumn] = useState<string | null>(null);
+  const [editingTask, setEditingTask] = useState<KanbanTask | null>(null);
+  const [editText, setEditText] = useState('');
+  
   const [isGenModalOpen, setIsGenModalOpen] = useState(false);
   const [genGoal, setGenGoal] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
 
+  const editInputRef = useRef<HTMLTextAreaElement>(null);
+
+  const [draggedItem, setDraggedItem] = useState<{ taskId: string; sourceColId: string } | null>(null);
+  const [dragOverCol, setDragOverCol] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if(editingTask && editInputRef.current) {
+        editInputRef.current.focus();
+        editInputRef.current.select();
+    }
+  }, [editingTask]);
+
   const updateAndPersist = (newData: KanbanToolData) => {
     setData(newData);
-    onUpdateProject({ ...project, tools: { ...project.tools, kanban: newData } });
+    onUpdateProject(p => ({ ...p, tools: { ...p.tools, kanban: newData } }));
   };
 
   const handleAddTask = (columnId: string, content: string) => {
@@ -93,13 +107,37 @@ export const KanbanView: React.FC<KanbanViewProps> = ({ project, onUpdateProject
     updateAndPersist({ ...data, tasks: newTasks, columns: newColumns });
     setAddingTaskToColumn(null);
   };
+
+  const handleEditTask = (task: KanbanTask) => {
+    setEditingTask(task);
+    setEditText(task.content);
+  }
+
+  const handleSaveEdit = () => {
+    if(!editingTask) return;
+    const newTasks = { ...data.tasks, [editingTask.id]: { ...editingTask, content: editText }};
+    updateAndPersist({ ...data, tasks: newTasks });
+    setEditingTask(null);
+  }
+  
+  const handleDeleteTask = (taskId: string, columnId: string) => {
+    const newTasks = { ...data.tasks };
+    delete newTasks[taskId];
+
+    const column = data.columns[columnId];
+    const newTaskIds = column.taskIds.filter(id => id !== taskId);
+    const newColumns = { ...data.columns, [columnId]: { ...column, taskIds: newTaskIds } };
+
+    updateAndPersist({ ...data, tasks: newTasks, columns: newColumns });
+  }
   
   const handleGeneratePlan = async () => {
     if (!genGoal.trim()) return;
     setIsGenerating(true);
     setGenError(null);
     try {
-        const { tasks: newAiTasks } = await geminiService.generateKanbanPlan(genGoal);
+        // Fix: Pass the user's selected language to the kanban plan generation service.
+        const { tasks: newAiTasks } = await geminiService.generateKanbanPlan(genGoal, settings.language);
 
         if (newAiTasks && Object.keys(newAiTasks).length > 0) {
             const newAiTaskIds = Object.keys(newAiTasks);
@@ -120,15 +158,13 @@ export const KanbanView: React.FC<KanbanViewProps> = ({ project, onUpdateProject
         } else {
             throw new Error("The AI returned no tasks. Please try a different goal.");
         }
-    } catch (error) {
+    } catch (error: any) {
         console.error("Failed to generate plan", error);
-        setGenError(error instanceof Error ? error.message : "An unknown error occurred while generating tasks.");
+        setGenError(error.message);
     } finally {
         setIsGenerating(false);
     }
   };
-
-  const [draggedItem, setDraggedItem] = useState<{ taskId: string; sourceColId: string } | null>(null);
 
   const handleDragStart = (taskId: string, sourceColId: string) => {
     setDraggedItem({ taskId, sourceColId });
@@ -137,6 +173,7 @@ export const KanbanView: React.FC<KanbanViewProps> = ({ project, onUpdateProject
   const handleDrop = (targetColId: string) => {
     if (!draggedItem || draggedItem.sourceColId === targetColId) {
       setDraggedItem(null);
+      setDragOverCol(null);
       return;
     }
 
@@ -156,13 +193,14 @@ export const KanbanView: React.FC<KanbanViewProps> = ({ project, onUpdateProject
 
     updateAndPersist({ ...data, columns: newColumns });
     setDraggedItem(null);
+    setDragOverCol(null);
   };
 
 
   return (
     <div className="w-full h-full flex flex-col p-4 bg-background-darkest overflow-auto">
       <div className="flex-shrink-0 mb-4 flex justify-between items-center">
-        <h2 className="text-xl font-bold">Kanban Board</h2>
+        <h2 className="text-xl font-bold">Tasks</h2>
         <Button onClick={() => { setIsGenModalOpen(true); setGenError(null); }} variant="secondary">Plan with AI</Button>
       </div>
       <div className="kanban-container flex-grow flex gap-4">
@@ -173,8 +211,9 @@ export const KanbanView: React.FC<KanbanViewProps> = ({ project, onUpdateProject
           return (
             <div 
               key={column.id} 
-              className="kanban-column w-72 bg-surface rounded-lg p-2 flex flex-col flex-shrink-0"
-              onDragOver={(e) => e.preventDefault()}
+              className={`kanban-column w-72 bg-surface rounded-lg p-2 flex flex-col flex-shrink-0 transition-colors ${dragOverCol === column.id ? 'bg-brand-primary/10' : ''}`}
+              onDragOver={(e) => { e.preventDefault(); setDragOverCol(column.id); }}
+              onDragLeave={() => setDragOverCol(null)}
               onDrop={() => handleDrop(column.id)}
             >
               <h3 className="font-semibold px-2 py-1 mb-2">{column.title} <span className="text-sm text-text-secondary">{tasks.length}</span></h3>
@@ -182,11 +221,28 @@ export const KanbanView: React.FC<KanbanViewProps> = ({ project, onUpdateProject
                 {tasks.map(task => (
                   <div 
                     key={task.id} 
-                    className={`bg-background-dark p-3 rounded-md shadow text-sm cursor-grab ${draggedItem?.taskId === task.id ? 'opacity-50' : ''}`}
+                    className={`group relative bg-background-dark p-3 rounded-md shadow text-sm cursor-grab ${draggedItem?.taskId === task.id ? 'opacity-50' : ''}`}
                     draggable
                     onDragStart={() => handleDragStart(task.id, column.id)}
+                    onClick={() => handleEditTask(task)}
                   >
-                    {task.content}
+                    {editingTask?.id === task.id ? (
+                        <textarea
+                            ref={editInputRef}
+                            value={editText}
+                            onChange={(e) => setEditText(e.target.value)}
+                            onBlur={handleSaveEdit}
+                            onKeyDown={(e) => { if(e.key === 'Enter') handleSaveEdit(); if(e.key === 'Escape') setEditingTask(null); }}
+                            className="w-full bg-overlay border border-border-color p-2 rounded-md text-sm text-text-primary resize-none"
+                            rows={3}
+                            onClick={e => e.stopPropagation()}
+                        />
+                    ) : (
+                        <>
+                            {task.content}
+                            <button onClick={(e) => { e.stopPropagation(); handleDeleteTask(task.id, column.id); }} className="absolute top-1 right-1 p-1 rounded-full bg-background-dark text-text-secondary opacity-0 group-hover:opacity-100 hover:bg-danger hover:text-white transition-opacity text-xs">&times;</button>
+                        </>
+                    )}
                   </div>
                 ))}
               </div>
@@ -212,14 +268,17 @@ export const KanbanView: React.FC<KanbanViewProps> = ({ project, onUpdateProject
                     type="text"
                     value={genGoal}
                     onChange={e => setGenGoal(e.target.value)}
-                    placeholder="e.g., Launch a new marketing website"
-                    className="w-full bg-background-dark border border-border-color p-3 rounded-md text-text-primary"
-                    disabled={isGenerating}
+                    placeholder="e.g., Launch a new marketing campaign"
+                    className="w-full bg-background-dark border border-border-color p-2 rounded-md text-text-primary"
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleGeneratePlan(); }}
                 />
-                {genError && <p className="text-sm text-danger">{genError}</p>}
-                <Button onClick={handleGeneratePlan} disabled={isGenerating || !genGoal.trim()} className="w-full">
-                    {isGenerating ? <Spinner /> : 'Generate Tasks'}
-                </Button>
+                {genError && <p className="text-danger text-sm">{genError}</p>}
+                <div className="flex justify-end gap-2 pt-2">
+                    <Button onClick={() => setIsGenModalOpen(false)} variant="secondary">Cancel</Button>
+                    <Button onClick={handleGeneratePlan} disabled={isGenerating || !genGoal.trim()}>
+                        {isGenerating ? <Spinner /> : 'Generate Plan'}
+                    </Button>
+                </div>
             </div>
         </Modal>
       )}

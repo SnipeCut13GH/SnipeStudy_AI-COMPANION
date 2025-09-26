@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { Project, ToolType, Message } from '../types';
-import Sidebar from '../components/workspace/Sidebar';
-import Header from '../components/workspace/Header';
-import { ToolNavbar } from '../components/workspace/ToolNavbar';
-import { useLocalStorage } from '../hooks/useLocalStorage';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Project, ToolType, Message } from '../types.ts';
+// Fix: Changed to a named import as Sidebar is not a default export.
+import { Sidebar } from '../components/workspace/Sidebar.tsx';
+import Header from '../components/workspace/Header.tsx';
+import { ToolNavbar } from '../components/workspace/ToolNavbar.tsx';
+import { useLocalStorage } from '../hooks/useLocalStorage.ts';
 import { useMediaQuery } from '../hooks/useMediaQuery.ts';
-import { ProjectDashboard } from '../components/workspace/ProjectDashboard';
-import { AppSettings } from '../App.tsx';
+import { ProjectDashboard } from '../components/workspace/ProjectDashboard.tsx';
+import { AppSettings, WidgetsState, WidgetId } from '../App.tsx';
 import { AppGridView } from '../components/AppGridView.tsx';
 
 interface WorkspaceViewProps {
@@ -14,13 +15,15 @@ interface WorkspaceViewProps {
     activeProject: Project;
     onSetActiveProject: (id: string) => void;
     onCreateProject: (name: string) => void;
-    onUpdateProject: (updatedProject: Project) => void;
+    onUpdateProject: (updater: (project: Project) => Project) => void;
     onDeleteProject: (id: string) => void;
     onOpenSettings: () => void;
     onOpenPomodoro: () => void;
     onOpenLiveMode: () => void;
     onOpenCalculator: () => void;
     settings: AppSettings;
+    openWidgets: WidgetsState;
+    onWidgetAction: (id: WidgetId, action: 'open' | 'close' | 'minimize' | 'restore') => void;
 }
 
 export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
@@ -34,11 +37,12 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
     onOpenPomodoro,
     onOpenLiveMode,
     onOpenCalculator,
-    settings
+    settings,
+    openWidgets,
+    onWidgetAction,
 }) => {
-    const [openTools, setOpenTools] = useLocalStorage<ToolType[]>(`snipe-study-open-tools-${activeProject.id}`, ['chat']);
-    const [activeTool, setActiveTool] = useLocalStorage<ToolType>(`snipe-study-active-tool-${activeProject.id}`, 'chat');
-    const [messages, setMessages] = useLocalStorage<Message[]>(`snipe-study-chat-${activeProject.id}`, []);
+    const [openTools, setOpenTools] = useLocalStorage<ToolType[]>(`educompanion-open-tools-${activeProject.id}`, ['chat']);
+    const [activeTool, setActiveTool] = useLocalStorage<ToolType>(`educompanion-active-tool-${activeProject.id}`, 'chat');
     
     const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
     const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -46,25 +50,23 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
     
     const isMobile = useMediaQuery('(max-width: 768px)');
 
-    // Reset tool and messages when project changes
+    // Reset tool state when project changes
     useEffect(() => {
-        const savedOpenTools = localStorage.getItem(`snipe-study-open-tools-${activeProject.id}`);
+        const savedOpenTools = localStorage.getItem(`educompanion-open-tools-${activeProject.id}`);
         setOpenTools(savedOpenTools ? JSON.parse(savedOpenTools) : ['chat']);
 
-        const savedActiveTool = localStorage.getItem(`snipe-study-active-tool-${activeProject.id}`);
+        const savedActiveTool = localStorage.getItem(`educompanion-active-tool-${activeProject.id}`);
         setActiveTool(savedActiveTool ? JSON.parse(savedActiveTool) : 'chat');
-        
-        const savedMessages = localStorage.getItem(`snipe-study-chat-${activeProject.id}`);
-        setMessages(savedMessages ? JSON.parse(savedMessages) : []);
-    }, [activeProject.id, setOpenTools, setActiveTool, setMessages]);
+    }, [activeProject.id, setOpenTools, setActiveTool]);
 
-    const handleSelectTool = (tool: ToolType) => {
+    const handleSelectTool = useCallback((tool: ToolType) => {
         if (!openTools.includes(tool)) {
             setOpenTools(prev => [...prev, tool]);
         }
         setActiveTool(tool);
         setIsAppGridOpen(false);
-    };
+    }, [openTools, setOpenTools, setActiveTool]);
+
 
     const handleCloseTool = (toolToClose: ToolType) => {
         if (toolToClose === 'chat') return; // Cannot close chat
@@ -77,8 +79,7 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
             setActiveTool(newOpenTools[newOpenTools.length - 1] || 'chat');
         }
     };
-
-
+    
     return (
         <div className="flex h-full w-full">
             <Sidebar 
@@ -92,31 +93,33 @@ export const WorkspaceView: React.FC<WorkspaceViewProps> = ({
                 onClose={() => setIsMobileSidebarOpen(false)}
                 isCollapsed={!isMobile && isSidebarCollapsed}
                 onToggleCollapse={() => setIsSidebarCollapsed(p => !p)}
+                settings={settings}
+                activeProject={activeProject}
+                onUpdateProject={onUpdateProject}
             />
             <main className="flex-1 flex flex-col bg-background-dark min-w-0">
                 <Header 
-                    project={activeProject} 
-                    onDeleteProject={onDeleteProject} 
                     onOpenPomodoro={onOpenPomodoro}
                     onOpenLiveMode={onOpenLiveMode}
                     onOpenCalculator={onOpenCalculator}
                     isMobile={isMobile}
                     onToggleSidebar={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
+                    settings={settings}
                 />
                 <ToolNavbar 
                     openTools={openTools}
                     activeTool={activeTool} 
                     onSelectTool={setActiveTool}
                     onCloseTool={handleCloseTool}
-                    onOpenAppGrid={() => setIsAppGridOpen(true)} 
+                    onOpenAppGrid={() => setIsAppGridOpen(true)}
+                    minimizedWidgets={openWidgets}
+                    onWidgetAction={onWidgetAction}
                 />
                 <div className="flex-1 overflow-hidden">
                     <ProjectDashboard
                       project={activeProject}
                       onUpdateProject={onUpdateProject}
                       activeTool={activeTool}
-                      messages={messages}
-                      setMessages={setMessages}
                       settings={settings}
                     />
                 </div>

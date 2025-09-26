@@ -1,50 +1,58 @@
-
-
 import React from 'react';
-import { Project, ToolType, FlashcardDeck } from '../../types';
-import { QuizView } from '../QuizView';
-import { StoryViewer } from '../StoryViewer';
-import { MindMapView } from '../MindMapView';
-import { CodeModeView } from '../tools/CodeRunnerView';
-import { FlashcardView } from '../tools/FlashcardView';
-import { AudioTranscriberView } from '../tools/AudioTranscriberView';
-import { PresentationView } from '../tools/PresentationView';
-import { KanbanView } from '../tools/KanbanView';
-import { CalendarView } from '../tools/CalendarView';
-import { ImageEditorView } from '../ImageEditorView';
-import { SmartboardView } from '../tools/SmartboardView';
-import { VideoGeneratorView } from '../tools/VideoGeneratorView';
-// Fix: Import WhiteboardView and DocsView to render the corresponding tools.
-import { WhiteboardView } from '../tools/WhiteboardView.tsx';
+import { Project, ToolType, ChatSession } from '../../types.ts';
+import { QuizView } from '../QuizView.tsx';
+import { StoryViewer } from '../StoryViewer.tsx';
+import { MindMapView } from '../MindMapView.tsx';
+import { CodeModeView } from '../tools/CodeRunnerView.tsx';
+import { FlashcardView } from '../tools/FlashcardView.tsx';
+import { AudioTranscriberView } from '../tools/AudioTranscriberView.tsx';
+import { PresentationView } from '../tools/PresentationView.tsx';
+import { KanbanView } from '../tools/KanbanView.tsx';
+import { CalendarView } from '../tools/CalendarView.tsx';
+import { ImageEditorView } from '../ImageEditorView.tsx';
+import { SmartboardView } from '../tools/SmartboardView.tsx';
 import { DocsView } from '../tools/DocsView.tsx';
-import { MessageList } from '../ChatMessage';
-import { ChatInput } from '../ChatInput';
-import { Message, MessageRole } from '../../types';
-import * as geminiService from '../../services/geminiService';
+import { GamesView } from '../tools/GamesView.tsx';
+// Fix: Import VideoGeneratorView to be able to use it in the dashboard.
+import { VideoGeneratorView } from '../tools/VideoGeneratorView.tsx';
+import { MessageList } from '../ChatMessage.tsx';
+import { ChatInput } from '../ChatInput.tsx';
+import { Message, MessageRole } from '../../types.ts';
+import * as geminiService from '../../services/geminiService.ts';
 import { v4 as uuidv4 } from 'uuid';
 import { AppSettings } from '../../App.tsx';
+import { languages } from '../../services/translations.ts';
+import { getTranslator } from '../../services/translator.ts';
+import { Tooltip } from '../common/Tooltip.tsx';
 
+
+// --- Main Project Dashboard Component ---
 interface ProjectDashboardProps {
   project: Project;
-  onUpdateProject: (updatedProject: Project) => void;
+  onUpdateProject: (updater: (project: Project) => Project) => void;
   activeTool: ToolType;
-  messages: Message[];
-  setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   settings: AppSettings;
 }
 
 export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({ 
-    project, onUpdateProject, activeTool, messages, setMessages, settings
+    project, onUpdateProject, activeTool, settings
 }) => {
     const [isLoading, setIsLoading] = React.useState(false);
-    const [isWebSearchMode, setIsWebSearchMode] = React.useState(false);
     const bottomRef = React.useRef<HTMLDivElement>(null);
+    const stopGenerationRef = React.useRef(false);
+    const { t } = getTranslator(settings.language);
 
     React.useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages, isLoading]);
+    }, [project.tools.chat?.activeSessionId, project.tools.chat?.sessions, isLoading]);
+    
+    const handleStopGeneration = () => {
+        stopGenerationRef.current = true;
+        setIsLoading(false);
+    };
 
     const handleSendMessage = async (prompt: string, imageFile?: File) => {
+        stopGenerationRef.current = false;
         setIsLoading(true);
 
         let imageBase64: string | undefined = undefined;
@@ -56,112 +64,149 @@ export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
                 reader.readAsDataURL(imageFile);
             });
         }
-
-        const userMessage: Message = {
-            id: uuidv4(),
-            role: MessageRole.USER,
-            text: prompt,
-            images: imageBase64 ? [imageBase64] : undefined,
-        };
         
-        const updatedMessages = [...messages, userMessage];
-        setMessages(updatedMessages);
-
-        try {
-            const lowerCasePrompt = prompt.toLowerCase();
-            // Command handling
-            if (lowerCasePrompt.startsWith('flashcards')) {
-                const topic = prompt.substring('flashcards'.length).trim();
-                if (topic) {
-                    const cards = await geminiService.generateFlashcards(topic, 10); // default 10 cards
-                    const newDeck: FlashcardDeck = { id: uuidv4(), title: topic, cards: cards.map(c => ({...c, id: uuidv4()})) };
-                    
-                    const flashcardData = project.tools.flashcards || { decks: {} };
-                    const updatedDecks = { ...flashcardData.decks, [newDeck.id]: newDeck };
-                    
-                    onUpdateProject({ ...project, tools: { ...project.tools, flashcards: { decks: updatedDecks }}});
-                    
-                    const modelMessage: Message = {
-                        id: uuidv4(),
-                        role: MessageRole.MODEL,
-                        text: `I've created a new flashcard deck for you on "${topic}". You can find it in the Flashcards tool.`,
-                        flashcardDeckId: newDeck.id,
-                    };
-                    setMessages(prev => [...prev, modelMessage]);
-                } else {
-                     throw new Error("Please provide a topic for the flashcards. Usage: flashcards [topic]");
-                }
-            } else if (lowerCasePrompt.startsWith('summarize')) {
-                const textToSummarize = prompt.substring('summarize'.length).trim();
-                if (textToSummarize) {
-                    const summary = await geminiService.summarizeText(textToSummarize);
-                    const modelMessage: Message = { id: uuidv4(), role: MessageRole.MODEL, text: summary };
-                    setMessages(prev => [...prev, modelMessage]);
-                } else {
-                    throw new Error("Please provide text to summarize. Usage: summarize [text to summarize]");
-                }
-            } else {
-                 // Default chat response
-                let messagesForApi = updatedMessages;
-                const lastMessage = messagesForApi[messagesForApi.length - 1];
-
-                const shouldSearch = isWebSearchMode || lastMessage.text.toLowerCase().startsWith('search');
-                
-                if (lastMessage.text.toLowerCase().startsWith('search')) {
-                    const modifiedLastMessage = { ...lastMessage, text: lastMessage.text.substring('search'.length).trim() };
-                    messagesForApi = [...messagesForApi.slice(0, -1), modifiedLastMessage];
-                }
-
-                const { text, sources } = await geminiService.generateChatResponse(messagesForApi, settings.systemInstruction, shouldSearch);
-                const modelMessage: Message = {
-                    id: uuidv4(),
-                    role: MessageRole.MODEL,
-                    text,
-                    sources,
-                };
-                setMessages(prev => [...prev, modelMessage]);
-            }
-        } catch (error: any) {
-            const errorMessage: Message = {
-                id: uuidv4(),
-                role: MessageRole.MODEL,
-                text: error.message || "An unknown error occurred.",
-                isError: true,
-            };
-            setMessages(prev => [...prev, errorMessage]);
-        } finally {
+        const userMessage: Message = { id: uuidv4(), role: MessageRole.USER, text: prompt, images: imageBase64 ? [imageBase64] : undefined };
+        
+        const activeSessionId = project.tools.chat?.activeSessionId;
+        if (!activeSessionId) {
             setIsLoading(false);
+            console.error("No active chat session found.");
+            return;
+        }
+        const activeSession = project.tools.chat!.sessions[activeSessionId];
+        const historyForApi = [...activeSession.messages, userMessage];
+
+        // Optimistic UI update for user message
+        onUpdateProject(currentProject => {
+            const chatData = currentProject.tools.chat;
+            if (!chatData || !chatData.activeSessionId) return currentProject;
+            
+            const currentActiveSession = chatData.sessions[chatData.activeSessionId];
+            const newTitle = currentActiveSession.messages.length === 0 && prompt.trim() ? prompt.substring(0, 40) : currentActiveSession.title;
+            const sessionWithUserMessage: ChatSession = { 
+                ...currentActiveSession, 
+                title: newTitle, 
+                messages: [...currentActiveSession.messages, userMessage] 
+            };
+
+            return {
+                ...currentProject,
+                tools: {
+                    ...currentProject.tools,
+                    chat: {
+                        ...chatData,
+                        sessions: { ...chatData.sessions, [currentActiveSession.id]: sessionWithUserMessage }
+                    }
+                }
+            };
+        });
+        
+        const languageName = languages[settings.language as keyof typeof languages] || 'English';
+        const finalSystemInstruction = `You must respond in ${languageName}. ${settings.systemInstruction}`;
+        
+        try {
+            const { text, sources } = await geminiService.generateChatResponse(historyForApi, finalSystemInstruction, true);
+            
+            if (stopGenerationRef.current) return;
+
+            const modelMessage: Message = { 
+                id: uuidv4(), 
+                role: MessageRole.MODEL, 
+                text, 
+                sources,
+                primarySource: (sources && sources.length > 0) ? sources[0] : undefined,
+            };
+            
+            onUpdateProject(currentProject => {
+                const chatData = currentProject.tools.chat;
+                if (!chatData || !chatData.activeSessionId) return currentProject;
+                
+                const currentActiveSession = chatData.sessions[chatData.activeSessionId];
+                // Ensure we're updating the correct message history
+                const messagesWithModelResponse = [...currentActiveSession.messages, modelMessage];
+
+                const sessionWithModelMessage = { 
+                    ...currentActiveSession, 
+                    messages: messagesWithModelResponse
+                };
+                
+                return {
+                    ...currentProject,
+                    tools: {
+                        ...currentProject.tools,
+                        chat: {
+                            ...chatData,
+                            sessions: { ...chatData.sessions, [currentActiveSession.id]: sessionWithModelMessage }
+                        }
+                    }
+                };
+            });
+
+        } catch (error: any) {
+             if (stopGenerationRef.current) return;
+            const errorMessage: Message = { id: uuidv4(), role: MessageRole.MODEL, text: error.message || "An unknown error occurred.", isError: true };
+            
+            onUpdateProject(currentProject => {
+                const chatData = currentProject.tools.chat;
+                if (!chatData || !chatData.activeSessionId) return currentProject;
+                
+                const currentActiveSession = chatData.sessions[chatData.activeSessionId];
+                const sessionWithError = { 
+                    ...currentActiveSession, 
+                    messages: [...currentActiveSession.messages, errorMessage] 
+                };
+                
+                return {
+                    ...currentProject,
+                    tools: {
+                        ...currentProject.tools,
+                        chat: {
+                            ...chatData,
+                            sessions: { ...chatData.sessions, [currentActiveSession.id]: sessionWithError }
+                        }
+                    }
+                };
+            });
+        } finally {
+            if (!stopGenerationRef.current) {
+                setIsLoading(false);
+            }
         }
     };
   
     const toolComponentMap: Record<ToolType, React.ReactNode> = {
-        'chat': (
-            <div className="flex flex-col h-full bg-background-darkest">
-                <MessageList messages={messages} isLoading={isLoading} bottomRef={bottomRef} />
-                <ChatInput 
-                    onSendMessage={handleSendMessage} 
-                    isLoading={isLoading} 
-                    placeholder="Ask anything or type a command..."
-                    onStopGeneration={() => console.log('Stop generation not implemented')}
-                    isWebSearchMode={isWebSearchMode}
-                    onToggleWebSearchMode={() => setIsWebSearchMode(p => !p)}
-                />
-            </div>
-        ),
-        'quiz': <QuizView project={project} onUpdateProject={onUpdateProject} />,
-        'story': <StoryViewer project={project} onUpdateProject={onUpdateProject} />,
-        'mind_map': <MindMapView project={project} onUpdateProject={onUpdateProject} />,
+        'chat': (() => {
+            const chatData = project.tools.chat;
+            const activeSession = chatData && chatData.activeSessionId ? chatData.sessions[chatData.activeSessionId] : null;
+            const messages = activeSession ? activeSession.messages : [];
+            return (
+                <div className="flex flex-col h-full bg-background-darkest">
+                    <MessageList messages={messages} isLoading={isLoading} bottomRef={bottomRef} t={t} />
+                    <ChatInput 
+                        onSendMessage={handleSendMessage} 
+                        isLoading={isLoading} 
+                        placeholder={t('chatInput.placeholder')}
+                        onStopGeneration={handleStopGeneration}
+                        settings={settings}
+                        t={t}
+                    />
+                </div>
+            );
+        })(),
+        'quiz': <QuizView project={project} onUpdateProject={onUpdateProject} settings={settings} />,
+        'mind_map': <MindMapView project={project} onUpdateProject={onUpdateProject} settings={settings} />,
         'code_mode': <CodeModeView project={project} onUpdateProject={onUpdateProject} />,
-        'flashcards': <FlashcardView project={project} onUpdateProject={onUpdateProject} />,
+        'flashcards': <FlashcardView project={project} onUpdateProject={onUpdateProject} settings={settings} />,
         'audio_transcription': <AudioTranscriberView project={project} onUpdateProject={onUpdateProject} />,
-        'presentation': <PresentationView project={project} onUpdateProject={onUpdateProject} />,
-        'kanban': <KanbanView project={project} onUpdateProject={onUpdateProject} />,
+        'presentation': <PresentationView project={project} onUpdateProject={onUpdateProject} settings={settings} />,
+        'kanban': <KanbanView project={project} onUpdateProject={onUpdateProject} settings={settings} />,
         'calendar': <CalendarView project={project} onUpdateProject={onUpdateProject} />,
         'image_editor': <ImageEditorView project={project} onUpdateProject={onUpdateProject} />,
-        'smartboard': <SmartboardView project={project} onUpdateProject={onUpdateProject} />,
+        'smartboard': <SmartboardView project={project} onUpdateProject={onUpdateProject} settings={settings} />,
+        'docs': <DocsView project={project} onUpdateProject={onUpdateProject} settings={settings} />,
+        'games': <GamesView settings={settings} />,
+        // Fix: Add video generator to the tool map.
         'video_generator': <VideoGeneratorView project={project} onUpdateProject={onUpdateProject} />,
-        'whiteboard': <WhiteboardView project={project} onUpdateProject={onUpdateProject} />,
-        'docs': <DocsView project={project} onUpdateProject={onUpdateProject} />,
     };
 
     return (
@@ -177,4 +222,4 @@ export const ProjectDashboard: React.FC<ProjectDashboardProps> = ({
         ))}
       </div>
     );
-};
+}

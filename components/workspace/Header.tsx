@@ -1,6 +1,8 @@
 import React from 'react';
-import { Project, User } from '../../types';
-import { Button } from '../common/Button';
+import { Project } from '../../types.ts';
+import { Button } from '../common/Button.tsx';
+import { AppSettings } from '../../App.tsx';
+import { getTranslator } from '../../services/translator.ts';
 
 const MenuIcon: React.FC = () => (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" /></svg>
@@ -17,28 +19,26 @@ const CalculatorIcon: React.FC = () => (
 
 
 interface HeaderProps {
-  project: Project;
-  onDeleteProject: (id: string) => void;
   onOpenPomodoro: () => void;
   onOpenLiveMode: () => void;
   onOpenCalculator: () => void;
   isMobile: boolean;
   onToggleSidebar: () => void;
+  settings: AppSettings;
 }
 
-export const Header: React.FC<HeaderProps> = ({ project, onDeleteProject, onOpenPomodoro, onOpenLiveMode, onOpenCalculator, isMobile, onToggleSidebar }) => {
+export const Header: React.FC<HeaderProps> = ({ onOpenPomodoro, onOpenLiveMode, onOpenCalculator, isMobile, onToggleSidebar, settings }) => {
+  const { t } = getTranslator(settings.language);
+  
   return (
-    <header className="px-2 sm:px-4 py-3 border-b border-border-color flex-shrink-0 flex items-center justify-between bg-surface gap-2">
+    <header className="px-2 sm:px-4 py-2 border-b border-border-color flex-shrink-0 flex items-center justify-between gap-2">
       <div className="flex items-center gap-2 flex-shrink min-w-0">
         {isMobile && <Button onClick={onToggleSidebar} variant="ghost" size="sm" className="p-2 flex-shrink-0"><MenuIcon /></Button>}
-        <div className="min-w-0">
-            <h2 className="text-lg font-bold text-text-primary truncate">{project.name}</h2>
-        </div>
       </div>
-      <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
-        <Button onClick={onOpenPomodoro} size="sm" variant="secondary" leftIcon={<PomodoroIcon />}>Timer</Button>
-        <Button onClick={onOpenCalculator} size="sm" variant="secondary" leftIcon={<CalculatorIcon />}>Calc</Button>
-        <Button onClick={onOpenLiveMode} size="sm" variant="secondary" leftIcon={<LiveIcon />}>Live</Button>
+      <div className="flex items-center gap-2 sm:gap-4 flex-shrink-0">
+        <Button onClick={onOpenPomodoro} size="sm" variant="secondary" leftIcon={<PomodoroIcon />}>{t('header.timer')}</Button>
+        <Button onClick={onOpenCalculator} size="sm" variant="secondary" leftIcon={<CalculatorIcon />}>{t('header.calc')}</Button>
+        <Button onClick={onOpenLiveMode} size="sm" variant="secondary" leftIcon={<LiveIcon />}>{t('header.live')}</Button>
       </div>
     </header>
   );

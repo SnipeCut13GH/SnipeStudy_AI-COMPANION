@@ -19,6 +19,21 @@ root.render(
   </React.StrictMode>
 );
 
+// Register Service Worker for PWA functionality.
+// This enables offline capabilities and allows the app to be "installed".
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').then(registration => {
+      console.log('ServiceWorker registration successful with scope: ', registration.scope);
+    }, err => {
+      // Registration can fail in some development environments (e.g., cross-origin issues)
+      // or if the user has disabled them. We log the error but don't break the app.
+      console.log('ServiceWorker registration failed: ', err);
+    });
+  });
+}
+
+
 // Add modal and tooltip portal roots if they don't exist.
 if (!document.getElementById('modal-root')) {
     const modalRoot = document.createElement('div');

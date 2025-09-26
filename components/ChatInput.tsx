@@ -1,221 +1,207 @@
 
+
 import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { CameraView } from './CameraView';
+import { CameraView } from './CameraView.tsx';
+import { Button } from './common/Button.tsx';
+import { Tooltip } from './common/Tooltip.tsx';
+import { AppSettings } from '../App.tsx';
+
+declare global {
+  interface Window {
+    SpeechRecognition: any;
+    webkitSpeechRecognition: any;
+  }
+}
 
 interface ChatInputProps {
-  onSendMessage: (message: string, image?: File) => void;
+  onSendMessage: (message: string, imageFile?: File) => void;
   isLoading: boolean;
   placeholder: string;
   onStopGeneration: () => void;
-  isWebSearchMode: boolean;
-  onToggleWebSearchMode: () => void;
+  settings: AppSettings;
+  t: (key: string) => string;
 }
 
-const AttachIcon: React.FC<{ disabled: boolean }> = ({ disabled }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${disabled ? 'text-gray-600' : 'text-text-secondary'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+// --- ICONS ---
+const AttachIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
 );
-
-const CameraIcon: React.FC<{ disabled: boolean }> = ({ disabled }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${disabled ? 'text-gray-600' : 'text-text-secondary'}`} viewBox="0 0 20 20" fill="currentColor">
-        <path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v6a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2H4zm10 4a3 3 0 11-6 0 3 3 0 016 0z" clipRule="evenodd" />
-    </svg>
+const CameraIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M4 5a2 2 0 00-2 2v6a2 2 0 002 2h12a2 2 0 002-2V7a2 2 0 00-2-2H4zm10 4a3 3 0 11-6 0 3 3 0 016 0z" clipRule="evenodd" /></svg>
 );
-
-const MicIcon: React.FC<{ disabled: boolean; isListening: boolean }> = ({ disabled, isListening }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 ${disabled ? 'text-gray-600' : isListening ? 'text-red-500' : 'text-text-secondary'}`} viewBox="0 0 20 20" fill="currentColor">
-        <path d="M7 4a3 3 0 016 0v6a3 3 0 11-6 0V4z" />
-        <path fillRule="evenodd" d="M3 8a1 1 0 011-1h.5a.5.5 0 000-1H4a1 1 0 00-1 1v4a1 1 0 001 1h.5a.5.5 0 000-1H4a1 1 0 01-1-1V8zm12 0a1 1 0 011-1h.5a.5.5 0 000-1H16a1 1 0 00-1 1v4a1 1 0 001 1h.5a.5.5 0 000-1H16a1 1 0 01-1-1V8z" clipRule="evenodd" />
-    </svg>
+const SendIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" /></svg>
 );
-
-const SendIcon: React.FC<{ disabled: boolean }> = ({ disabled }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" className={`h-5 w-5 transform rotate-90 ${disabled ? 'text-text-secondary' : 'text-brand-primary'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
-);
-
 const StopIcon: React.FC = () => (
-    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-white" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1zm4 0a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fillRule="evenodd" d="M5 5a1 1 0 00-1 1v8a1 1 0 001 1h8a1 1 0 001-1V6a1 1 0 00-1-1H5z" clipRule="evenodd" /></svg>
+);
+const MicIcon: React.FC = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path d="M7 4a3 3 0 016 0v6a3 3 0 11-6 0V4z" /><path fillRule="evenodd" d="M3 8a1 1 0 011-1h.5a.5.5 0 000-1H4a1 1 0 00-1 1v4a1 1 0 001 1h.5a.5.5 0 000-1H4a1 1 0 01-1-1V8zm12 0a1 1 0 011-1h.5a.5.5 0 000-1H16a1 1 0 00-1 1v4a1 1 0 001 1h.5a.5.5 0 000-1H16a1 1 0 01-1-1V8z" clipRule="evenodd" /></svg>
 );
 
-const agentCommands = [
-  { command: 'search', description: 'Perform a web search' },
-  { command: 'flashcards', description: 'Generate flashcards from a topic' },
-  { command: 'summarize', description: 'Summarize the text that follows' },
-];
 
-const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-const isSpeechRecognitionSupported = !!SpeechRecognition;
-
-export const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isLoading, placeholder, onStopGeneration, isWebSearchMode, onToggleWebSearchMode }) => {
-  const [input, setInput] = useState('');
+// --- MAIN COMPONENT ---
+export const ChatInput: React.FC<ChatInputProps> = ({ onSendMessage, isLoading, placeholder, onStopGeneration, settings, t }) => {
+  const [text, setText] = useState('');
   const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [showCommandSuggestions, setShowCommandSuggestions] = useState(false);
-  const [isListening, setIsListening] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const recognitionRef = useRef<any>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const textAreaRef = useRef<HTMLTextAreaElement>(null);
+
+  const [isListening, setIsListening] = useState(false);
+  const [speechSupport, setSpeechSupport] = useState(false);
+  const recognitionRef = useRef<any>(null);
+  const textBeforeListeningRef = useRef('');
 
   useEffect(() => {
-    if (input.length > 0 && !input.includes(' ')) {
-        setShowCommandSuggestions(true);
-    } else {
-        setShowCommandSuggestions(false);
-    }
-  }, [input]);
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      setSpeechSupport(true);
+      recognitionRef.current = new SpeechRecognition();
+      const recognition = recognitionRef.current;
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = settings.language;
 
-   useEffect(() => {
-    if (!isSpeechRecognitionSupported) return;
+      recognition.onresult = (event: any) => {
+        const transcript = Array.from(event.results)
+          .map((result: any) => result[0])
+          .map((result) => result.transcript)
+          .join('');
+        setText(textBeforeListeningRef.current ? `${textBeforeListeningRef.current} ${transcript}`.trim() : transcript);
+      };
 
-    recognitionRef.current = new SpeechRecognition();
-    const recognition = recognitionRef.current;
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = 'en-US';
-
-    recognition.onstart = () => setIsListening(true);
-    recognition.onend = () => setIsListening(false);
-    recognition.onerror = (event: any) => {
-        console.error('Speech recognition error', event.error);
+      recognition.onerror = (event: any) => {
+        console.error('Speech recognition error:', event.error);
+        if (event.error === 'not-allowed') {
+          alert('Microphone permission denied. Please enable it in your browser settings.');
+        }
         setIsListening(false);
-    };
+      };
 
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      setInput(prev => prev ? `${prev} ${transcript}` : transcript);
-    };
-  }, []);
+      recognition.onend = () => {
+        setIsListening(false);
+      };
 
-  const handleToggleListening = () => {
-    if (isListening) {
-      recognitionRef.current?.stop();
-    } else {
-      recognitionRef.current?.start();
+      return () => {
+        if (recognitionRef.current) {
+            recognitionRef.current.stop();
+        }
+      };
     }
+  }, [settings.language]);
+
+  useEffect(() => {
+    if (textAreaRef.current) {
+        const target = textAreaRef.current;
+        target.style.height = 'auto';
+        target.style.height = `${target.scrollHeight}px`;
+    }
+  }, [text]);
+
+  const handleSend = () => {
+    if ((!text.trim() && !imageFile) || isLoading) return;
+    onSendMessage(text.trim(), imageFile || undefined);
+    setText('');
+    setImageFile(null);
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (file) {
-          setImageFile(file);
-          const reader = new FileReader();
-          reader.onloadend = () => { setImagePreview(reader.result as string); };
-          reader.readAsDataURL(file);
-      }
+    const file = e.target.files?.[0];
+    if (file) setImageFile(file);
+    if(e.target) e.target.value = ''; // Reset file input
+  };
+  
+  const handlePhotoTaken = (dataUrl: string) => {
+    fetch(dataUrl)
+        .then(res => res.blob())
+        .then(blob => {
+            const file = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
+            setImageFile(file);
+            setIsCameraOpen(false);
+        });
   };
 
-  const handleRemoveImage = () => {
-      setImageFile(null);
-      setImagePreview(null);
-      if(fileInputRef.current) fileInputRef.current.value = "";
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if ((input.trim() || imageFile) && !isLoading) {
-      onSendMessage(input.trim(), imageFile ?? undefined);
-      setInput('');
-      handleRemoveImage();
-    }
-  };
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value);
-    // Auto-resize textarea
-    if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
-        textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
     }
   };
   
-  const handlePhotoTaken = async (dataUrl: string) => {
-    setIsCameraOpen(false);
-    try {
-        const response = await fetch(dataUrl);
-        const blob = await response.blob();
-        const file = new File([blob], `photo-${Date.now()}.jpg`, { type: 'image/jpeg' });
-        setImageFile(file);
-        setImagePreview(dataUrl);
-    } catch (error) {
-        console.error("Error converting data URL to file:", error);
+  const handleMicClick = () => {
+    if (!recognitionRef.current) return;
+    if (isListening) {
+      recognitionRef.current.stop();
+    } else {
+      textBeforeListeningRef.current = text;
+      recognitionRef.current.start();
+      setIsListening(true);
     }
   };
 
   return (
-    <div className="bg-background-dark p-2 sm:p-4 flex-shrink-0 border-t border-border-color">
-        <div className="max-w-4xl mx-auto relative">
-            {showCommandSuggestions && (
-                <div className="absolute bottom-full left-0 right-0 bg-background-light rounded-t-lg border border-b-0 border-border-color shadow-lg p-2">
-                    {agentCommands
-                      .filter(cmd => cmd.command.toLowerCase().includes(input.toLowerCase()))
-                      .map(cmd => (
-                        <div key={cmd.command}
-                             onClick={() => { setInput(cmd.command + ' '); setShowCommandSuggestions(false); textareaRef.current?.focus(); }}
-                             className="p-2 hover:bg-background-darkest rounded-md cursor-pointer text-sm">
-                            <span className="font-mono font-semibold text-brand-light">{cmd.command}</span>
-                            <span className="ml-2 text-text-secondary">{cmd.description}</span>
-                        </div>
-                    ))}
-                </div>
-            )}
-            {imagePreview && (
-                <div className="relative w-max ml-2 mb-2">
-                    <div className="relative bg-background-light p-1.5 rounded-lg shadow-lg">
-                        <img src={imagePreview} alt="Selected preview" className="h-20 w-20 object-cover rounded" />
-                        <button onClick={handleRemoveImage} className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full h-6 w-6 flex items-center justify-center text-xs font-bold" aria-label="Remove image">&times;</button>
-                    </div>
-                </div>
-            )}
-             <div className="flex items-center justify-end px-2 pb-2">
-                <label htmlFor="web-search-toggle" className="text-xs sm:text-sm text-text-secondary mr-2 sm:mr-3 font-medium">Web Search</label>
-                <button
-                    id="web-search-toggle"
-                    onClick={onToggleWebSearchMode}
-                    className={`relative inline-flex items-center h-6 rounded-full w-11 transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-background-dark ${isWebSearchMode ? 'bg-brand-primary' : 'bg-overlay'}`}
-                    aria-pressed={isWebSearchMode}
-                >
-                    <span className={`inline-block w-4 h-4 transform bg-white rounded-full transition-transform ${isWebSearchMode ? 'translate-x-6' : 'translate-x-1'}`}/>
-                </button>
-            </div>
-            <form onSubmit={handleSubmit} className="flex items-end space-x-1 sm:space-x-2 bg-background-light rounded-xl p-1.5 sm:p-2 border border-border-color focus-within:border-brand-primary transition-colors">
-                <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden"/>
-                <button type="button" onClick={() => fileInputRef.current?.click()} disabled={isLoading} className="p-2 rounded-lg hover:bg-background-darkest disabled:opacity-50" aria-label="Attach image">
-                    <AttachIcon disabled={isLoading} />
-                </button>
-                <button type="button" onClick={() => setIsCameraOpen(true)} disabled={isLoading} className="p-2 rounded-lg hover:bg-background-darkest disabled:opacity-50" aria-label="Use camera">
-                    <CameraIcon disabled={isLoading} />
-                </button>
-                <textarea
-                  ref={textareaRef}
-                  value={input} 
-                  onChange={handleInputChange} 
-                  placeholder={placeholder} 
-                  disabled={isLoading} 
-                  rows={1}
-                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { handleSubmit(e); } }}
-                  className="flex-1 bg-transparent border-none text-text-primary placeholder-text-secondary focus:outline-none focus:ring-0 resize-none max-h-48 disabled:opacity-50 min-w-0" 
-                />
-                 {isSpeechRecognitionSupported && (
-                     <button type="button" onClick={handleToggleListening} disabled={isLoading} className="p-2 rounded-lg hover:bg-background-darkest disabled:opacity-50" aria-label="Use voice input">
-                        <MicIcon disabled={isLoading} isListening={isListening}/>
-                    </button>
-                 )}
-                {isLoading ? (
-                    <button type="button" onClick={onStopGeneration} className="bg-red-600 p-2.5 rounded-lg hover:bg-red-700 flex items-center justify-center self-center" aria-label="Stop generation">
-                        <StopIcon />
-                    </button>
-                ) : (
-                    <button type="submit" disabled={!input.trim() && !imageFile} className="p-2 rounded-lg hover:bg-background-darkest disabled:opacity-50 self-center">
-                        <SendIcon disabled={!input.trim() && !imageFile} />
-                    </button>
-                )}
-            </form>
+    <div className="flex-shrink-0 p-2 sm:p-4 bg-surface border-t border-border-color">
+      <div className="w-full bg-background-light rounded-xl p-2 flex items-end gap-2">
+        <div className="flex items-center self-end gap-1">
+            <input type="file" ref={fileInputRef} onChange={handleFileChange} accept="image/*" className="hidden" />
+            <Tooltip content={t('chatInput.attachImage')}>
+                <Button onClick={() => fileInputRef.current?.click()} variant="ghost" size="sm" className="p-2" disabled={isLoading}><AttachIcon /></Button>
+            </Tooltip>
+            <Tooltip content={t('chatInput.useCamera')}>
+                <Button onClick={() => setIsCameraOpen(true)} variant="ghost" size="sm" className="p-2" disabled={isLoading}><CameraIcon /></Button>
+            </Tooltip>
         </div>
-        {isCameraOpen && createPortal(
-            <CameraView onPhotoTaken={handlePhotoTaken} onClose={() => setIsCameraOpen(false)} />,
-            document.body
+        
+        {imageFile && (
+          <div className="relative mb-1 self-end">
+            <img src={URL.createObjectURL(imageFile)} alt="Preview" className="w-16 h-16 object-cover rounded-md" />
+            <button onClick={() => setImageFile(null)} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center">&times;</button>
+          </div>
         )}
+        
+        <textarea
+          ref={textAreaRef}
+          value={text}
+          onChange={e => setText(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={isListening ? t('chatInput.listening') : placeholder}
+          rows={1}
+          className="flex-1 bg-transparent text-text-primary placeholder-text-secondary focus:outline-none resize-none max-h-40"
+          style={{ lineHeight: '1.5rem', paddingTop: '0.5rem', paddingBottom: '0.5rem' }}
+          disabled={isLoading}
+        />
+
+        <div className="flex items-end self-end gap-1">
+            <Tooltip content={!speechSupport ? t('chatInput.speechNotSupported') : (isListening ? t('chatInput.stopListening') : t('chatInput.speechToText'))}>
+              <Button 
+                onClick={handleMicClick} 
+                variant="ghost" 
+                size="sm" 
+                className={`p-2 relative aspect-square h-10 w-10 ${isListening ? 'text-brand-primary' : ''}`} 
+                disabled={isLoading || !speechSupport}
+              >
+                {isListening && <span className="absolute inset-0 rounded-full bg-brand-primary/20 animate-ping"></span>}
+                <MicIcon />
+              </Button>
+            </Tooltip>
+
+            {isLoading ? (
+                <Button onClick={onStopGeneration} variant="danger" size="sm" className="p-2 aspect-square h-10 w-10">
+                    <StopIcon />
+                </Button>
+            ) : (
+                <Button onClick={handleSend} disabled={!text.trim() && !imageFile} size="sm" className="p-2 aspect-square h-10 w-10">
+                    <SendIcon />
+                </Button>
+            )}
+        </div>
+      </div>
+      {isCameraOpen && createPortal(
+          <CameraView onPhotoTaken={handlePhotoTaken} onClose={() => setIsCameraOpen(false)} />,
+          document.body
+      )}
     </div>
   );
 };

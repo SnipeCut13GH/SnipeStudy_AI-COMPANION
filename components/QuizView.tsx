@@ -1,16 +1,17 @@
-
-
 import React, { useState } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 // Fix: Correct import paths for types and services.
 import { Project, QuizToolData, Question } from '../types.ts';
 import * as geminiService from '../services/geminiService.ts';
-import { Button } from './common/Button';
-import { Spinner } from './common/Spinner';
+import { Button } from './common/Button.tsx';
+import { Spinner } from './common/Spinner.tsx';
+import { AppSettings } from '../App.tsx';
 
 interface QuizViewProps {
   project: Project;
-  onUpdateProject: (updatedProject: Project) => void;
+  onUpdateProject: (updater: (project: Project) => Project) => void;
+  // Fix: Add settings prop to be able to access language preference.
+  settings: AppSettings;
 }
 
 const getInitialData = (project: Project): QuizToolData => {
@@ -24,7 +25,7 @@ const getInitialData = (project: Project): QuizToolData => {
   };
 };
 
-export const QuizView: React.FC<QuizViewProps> = ({ project, onUpdateProject }) => {
+export const QuizView: React.FC<QuizViewProps> = ({ project, onUpdateProject, settings }) => {
   const [data, setData] = useState<QuizToolData>(getInitialData(project));
   const [topicInput, setTopicInput] = useState(data.topic || 'Quantum Physics');
   const [countInput, setCountInput] = useState(5);
@@ -35,14 +36,15 @@ export const QuizView: React.FC<QuizViewProps> = ({ project, onUpdateProject }) 
   const updateAndPersist = (newData: Partial<QuizToolData>) => {
     const updatedData = { ...data, ...newData };
     setData(updatedData);
-    onUpdateProject({ ...project, tools: { ...project.tools, quiz: updatedData }});
+    onUpdateProject(p => ({ ...p, tools: { ...p.tools, quiz: updatedData }}));
   };
 
   const handleGenerateQuiz = async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const questionsData = await geminiService.generateQuiz(topicInput, countInput);
+      // Fix: Pass the user's selected language to the quiz generation service.
+      const questionsData = await geminiService.generateQuiz(topicInput, countInput, settings.language);
       const questionsWithIds: Question[] = questionsData.map(q => ({ ...q, id: uuidv4() }));
       updateAndPersist({
         topic: topicInput,
@@ -53,7 +55,7 @@ export const QuizView: React.FC<QuizViewProps> = ({ project, onUpdateProject }) 
         state: 'taking',
       });
     } catch (err: any) {
-      setError(`Failed to generate quiz: ${err.message}`);
+      setError(err.message);
     } finally {
       setIsLoading(false);
     }

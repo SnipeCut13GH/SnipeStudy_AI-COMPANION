@@ -1,3 +1,5 @@
+
+
 import React, { useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -8,7 +10,8 @@ interface TooltipProps {
   disabled?: boolean;
 }
 
-const getCoords = (rect: DOMRect, position: TooltipProps['position']) => {
+// Fix: Changed `position` parameter to `string` to align with inferred usage and resolve the type error.
+const getCoords = (rect: DOMRect, position: string) => {
     switch (position) {
         case 'right':
             return { x: rect.right + 8, y: rect.top + rect.height / 2, transform: 'translate(0, -50%)' };
@@ -18,6 +21,7 @@ const getCoords = (rect: DOMRect, position: TooltipProps['position']) => {
             return { x: rect.left + rect.width / 2, y: rect.bottom + 8, transform: 'translate(-50%, 0)' };
         case 'top':
         default:
+            // This handles 'top' as a safe fallback for any unexpected values.
             return { x: rect.left + rect.width / 2, y: rect.top - 8, transform: 'translate(-50%, -100%)' };
     }
 }
@@ -29,9 +33,9 @@ export const Tooltip: React.FC<TooltipProps> = ({ content, children, position = 
 
   const showTooltip = () => {
     if (disabled || !wrapperRef.current) return;
+    setVisible(true);
     const rect = wrapperRef.current.getBoundingClientRect();
     setCoords(getCoords(rect, position));
-    setVisible(true);
   };
 
   const hideTooltip = () => {
@@ -43,7 +47,7 @@ export const Tooltip: React.FC<TooltipProps> = ({ content, children, position = 
       ref={wrapperRef}
       onMouseEnter={showTooltip}
       onMouseLeave={hideTooltip}
-      className="inline-flex items-center w-full"
+      className="inline-flex items-center"
     >
       {children}
       {visible && createPortal(
